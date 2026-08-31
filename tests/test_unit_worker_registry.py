@@ -205,3 +205,34 @@ def test_report_health_unknown_worker_returns_false():
     assert (
         reg.report_health("ghost", cpu_pct=1.0, memory_pct=1.0, queue_depth=0) is False
     )
+
+
+# ===========================================================================
+# NEW: Worker auto-scale suggestion tests (Issue #64)
+# ===========================================================================
+
+
+def test_scale_up_suggestion_when_utilization_remains_high():
+    reg = _new_registry()
+    reg.register_worker("w1", capacity=4)
+
+    for _ in range(reg.AUTOSCALE_REQUIRED_SAMPLES):
+        reg.heartbeat("w1", active_tasks=4)
+        result = reg.get_scale_up_suggestion()
+
+    assert result["suggest_scale_up"] is True
+    assert result["utilization"] == 100.0
+    assert result["observed_samples"] == reg.AUTOSCALE_REQUIRED_SAMPLES
+
+
+def test_scale_up_suggestion_not_triggered_for_low_utilization():
+    reg = _new_registry()
+    reg.register_worker("w1", capacity=4)
+
+    for _ in range(reg.AUTOSCALE_REQUIRED_SAMPLES):
+        reg.heartbeat("w1", active_tasks=1)
+        result = reg.get_scale_up_suggestion()
+
+    assert result["suggest_scale_up"] is False
+    assert result["utilization"] == 25.0
+    assert result["observed_samples"] == reg.AUTOSCALE_REQUIRED_SAMPLES

@@ -32,5 +32,26 @@ class User:
         else:
             self.locale = locale
 
+        self.notification_preferences = {}
+
+    def set_notification_preference(self, notification_type, enabled):
+        """
+        Enable or disable a notification type for the user.
+        """
+        if not isinstance(notification_type, str) or not notification_type.strip():
+            raise ValueError("Notification type cannot be empty.")
+
+        if not isinstance(enabled, bool):
+            raise ValueError("Notification preference must be a boolean.")
+
+        self.notification_preferences[notification_type.strip()] = enabled
+
+    def is_notification_enabled(self, notification_type):
+        """
+        Returns whether the user has enabled the given notification type.
+        Notifications are enabled by default.
+        """
+        return self.notification_preferences.get(notification_type, True)
+
     def __str__(self):
         return f"User(name='{self.name}', email='{self.email}', locale='{self.locale}')"

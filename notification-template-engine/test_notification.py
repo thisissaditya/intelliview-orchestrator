@@ -127,6 +127,34 @@ class TestNotificationSystem(unittest.TestCase):
 
             self.assertIsInstance(message, str)
 
+    # Notification Preferences
+
+    def test_notification_can_be_disabled(self):
+
+        user = User("Vaishnavi", "vaish@gmail.com", "en")
+
+        user.set_notification_preference("interview_reminder", False)
+
+        message = send_notification(user, "interview_reminder", self.data)
+
+        self.assertIsNone(message)
+
+    def test_notification_preferences_are_per_type(self):
+
+        user = User("Vaishnavi", "vaish@gmail.com", "en")
+
+        user.set_notification_preference("interview_reminder", False)
+
+        # Disabled notification should not be sent
+        disabled_message = send_notification(user, "interview_reminder", self.data)
+
+        self.assertIsNone(disabled_message)
+
+        # Other notification types should still be sent
+        enabled_message = send_notification(user, "interview_scheduled", self.data)
+
+        self.assertIsInstance(enabled_message, str)
+
     # Exception Handling
 
     def test_none_user(self):

@@ -34,7 +34,7 @@ import { Skeleton, ErrorState } from "@/components/States";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { exportAnalyticsCSV } from "@/lib/export";
+import { exportAnalyticsCSV, exportAnalyticsPDF } from "@/lib/export";
 
 
 
@@ -263,128 +263,253 @@ function RiskDistribution({
 
 
 
-function TrendChart({sessions}){
 
+function TrendChart({ sessions }) {
+  const [aggregation, setAggregation] = useState("weekly");
 
- const trendData=useMemo(()=>{
+  const trendData = useMemo(() => {
+    if (!sessions || sessions.length === 0) {
+      return [];
+    }
 
+    const buckets = {};
 
- const data={};
+    sessions.forEach((session) => {
+      const riskScore = Number(session.risk_score);
 
+      if (!Number.isFinite(riskScore)) {
+        return;
+      }
 
- sessions.forEach((s)=>{
+      const rawDate =
+        session.updated_at ||
+        session.created_at ||
+        session.completed_at ||
+        "";
 
+      if (!rawDate) {
+        return;
+      }
 
- const date=(
- s.updated_at ||
- s.created_at ||
- ""
- ).slice(0,10);
+      const date = new Date(rawDate);
 
+      if (Number.isNaN(date.getTime())) {
+        return;
+      }
 
+      let bucketKey;
 
- if(!date)
- return;
+      if (aggregation === "monthly") {
+        bucketKey = `${date.getFullYear()}-${String(
+          date.getMonth() + 1
+        ).padStart(2, "0")}`;
+      } else {
+        const startOfYear = new Date(date.getFullYear(), 0, 1);
+        const dayOfYear =
+          Math.floor(
+            (date - startOfYear) / (24 * 60 * 60 * 1000)
+          ) + 1;
 
+        const week = Math.ceil(dayOfYear / 7);
 
+        bucketKey = `${date.getFullYear()}-W${String(
+          week
+        ).padStart(2, "0")}`;
+      }
 
- if(!data[date]){
+      if (!buckets[bucketKey]) {
+        buckets[bucketKey] = {
+          period: bucketKey,
+          passed: 0,
+          total: 0,
+        };
+      }
 
- data[date]={
- date,
- completed:0,
- failed:0
- };
+      buckets[bucketKey].total += 1;
 
- }
+      if (riskScore < 0.6) {
+        buckets[bucketKey].passed += 1;
+      }
+    });
 
+    return Object.values(buckets)
+      .sort((a, b) => a.period.localeCompare(b.period))
+      .map((bucket) => ({
+        period: bucket.period,
+        passRate:
+          bucket.total === 0
+            ? 0
+            : Number(
+                ((bucket.passed / bucket.total) * 100).toFixed(2)
+              ),
+      }));
+  }, [sessions, aggregation]);
 
+  return (
+    <Card
+      title="Pass-rate trend"
+      description="Weekly or monthly percentage of sessions that passed."
+    >
+      <div className="mb-4 flex gap-2">
+        <button
+          onClick={() => setAggregation("weekly")}
+          className={cn(
+            "rounded px-3 py-1 text-xs",
+            aggregation === "weekly"
+              ? "bg-accent/20"
+              : "text-muted"
+          )}
+        >
+          Weekly
+        </button>
 
- if(s.status==="COMPLETED")
- data[date].completed++;
+        <button
+          onClick={() => setAggregation("monthly")}
+          className={cn(
+            "rounded px-3 py-1 text-xs",
+            aggregation === "monthly"
+              ? "bg-accent/20"
+              : "text-muted"
+          )}
+        >
+          Monthly
+        </button>
+      </div>
 
+      {trendData.length === 0 ? (
+        <div className="py-8 text-center text-sm text-muted">
+          No evaluation data available for pass-rate trend.
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={280}>
+          <LineChart data={trendData}>
+            <CartesianGrid strokeDasharray="3 3" />
 
- if(
- s.status==="FAILED" ||
- s.status==="TIMEOUT"
- )
- data[date].failed++;
+            <XAxis dataKey="period" />
 
+            <YAxis
+              domain={[0, 100]}
+              tickFormatter={(value) => `${value}%`}
+            />
 
- });
+            <Tooltip
+              {...TOOLTIP_STYLE}
+              formatter={(value) => [`${value}%`, "Pass rate"]}
+            />
 
+            <Line
+              type="monotone"
+              dataKey="passRate"
+              name="Pass rate"
+              stroke="#6366f1"
+              strokeWidth={2}
+              dot
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+    </Card>
+  );
+}
 
+function WeakAreaTagCloud({ sessions }) {
+  const weakAreas = useMemo(() => {
+    const counts = {};
 
- return Object.values(data);
+    if (!sessions || sessions.length === 0) {
+      return [];
+    }
 
+    sessions.forEach((session) => {
+      const evaluation =
+        session.evaluation_analysis ||
+        session.evaluation_result ||
+        session.evaluation ||
+        {};
 
- },[sessions]);
+      const topics = [];
 
+      const knowledgeGaps =
+        evaluation?.technical_accuracy?.knowledge_gaps;
 
+      if (Array.isArray(knowledgeGaps)) {
+        topics.push(...knowledgeGaps);
+      }
 
- return(
+      const improvements =
+        evaluation?.feedback?.improvements;
 
- <Card
- title="Trend analysis"
- description="Daily session completion and failure trends."
- >
+      if (Array.isArray(improvements)) {
+        topics.push(...improvements);
+      }
 
+      topics.forEach((topic) => {
+        const normalized = String(topic).trim();
 
- {
- trendData.length===0 ?
+        if (!normalized) {
+          return;
+        }
 
- <div className="py-8 text-center text-sm text-muted">
- No data for trend analysis.
- </div>
+        const key = normalized.toLowerCase();
 
+        if (!counts[key]) {
+          counts[key] = {
+            topic: normalized,
+            count: 0,
+          };
+        }
 
- :
+        counts[key].count += 1;
+      });
+    });
 
- <ResponsiveContainer
- width="100%"
- height={280}
- >
+    return Object.values(counts).sort(
+      (a, b) =>
+        b.count - a.count ||
+        a.topic.localeCompare(b.topic)
+    );
+  }, [sessions]);
 
- <LineChart data={trendData}>
+  const maxCount =
+    weakAreas.length > 0
+      ? Math.max(...weakAreas.map((item) => item.count))
+      : 1;
 
- <CartesianGrid strokeDasharray="3 3"/>
+  return (
+    <Card
+      title="Weak areas"
+      description="Common topics identified from evaluated sessions."
+    >
+      {weakAreas.length === 0 ? (
+        <div className="py-8 text-center text-sm text-muted">
+          No weak areas found.
+        </div>
+      ) : (
+        <div className="flex min-h-[220px] flex-wrap items-center justify-center gap-3 p-4">
+          {weakAreas.map((item) => {
+            const size =
+              0.85 +
+              (item.count / maxCount) * 0.75;
 
- <XAxis dataKey="date"/>
-
- <YAxis/>
-
- <Tooltip {...TOOLTIP_STYLE}/>
-
-
- <Line
- dataKey="completed"
- stroke="#10b981"
- name="Completed"
- />
-
- <Line
- dataKey="failed"
- stroke="#ef4444"
- name="Failed"
- />
-
-
- </LineChart>
-
-
- </ResponsiveContainer>
-
-
- }
-
-
-
- </Card>
-
-
- );
-
-
+            return (
+              <span
+                key={item.topic}
+                title={`${item.count} occurrence${
+                  item.count === 1 ? "" : "s"
+                }`}
+                className="rounded-full border border-border bg-bg-card px-3 py-2 text-center"
+                style={{
+                  fontSize: `${size}rem`,
+                }}
+              >
+                {item.topic}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
 }
 
 
@@ -616,6 +741,25 @@ dateRange
     }
 
   },[candidates, stats.data, faults.data]);
+  const handlePDFExport = useCallback(async () => {
+  if (!candidates.length && !stats.data && !faults.data) {
+    toast.error("No data to export");
+    return;
+  }
+
+  try {
+    await exportAnalyticsPDF({
+      candidates,
+      stats: stats.data,
+      faults: faults.data,
+    });
+
+    toast.success("PDF export complete");
+  } catch (error) {
+    console.error("PDF export failed:", error);
+    toast.error("Failed to export PDF");
+  }
+}, [candidates, stats.data, faults.data]);
 
 
 
@@ -1105,6 +1249,13 @@ Export CSV
 
 </button>
 
+<button
+  onClick={handlePDFExport}
+  className="flex items-center gap-2 rounded border border-border bg-bg-card px-3 py-2 text-xs"
+>
+  <Download size={14} />
+  Export PDF
+</button>
 
 </div>
 

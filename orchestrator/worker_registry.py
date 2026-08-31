@@ -45,12 +45,15 @@ class WorkerRegistry:
     WORKER_HEARTBEAT_KEY = "worker:heartbeat:"
     HEARTBEAT_TIMEOUT = 60  # seconds
     SYNC_CHANNEL = "worker_registry_sync"
+    AUTOSCALE_UTILIZATION_THRESHOLD = 80.0
+    AUTOSCALE_REQUIRED_SAMPLES = 5
 
     def __init__(self):
         """Initialize worker registry"""
         try:
             self.redis_client = self._create_redis_client()
             self.local_workers: dict[str, dict[str, Any]] = {}
+            self.utilization_history: list[float] = []
             self.lock = Lock()
             self._hydrated = False
             self._hydrate_from_redis()
@@ -655,6 +658,55 @@ class WorkerRegistry:
                 "idle_workers": idle_workers,
                 "workers": worker_details,
             }
+
+    def get_scale_up_suggestion(self) -> dict[str, Any]:
+        """
+        Suggest adding workers when capacity utilization remains high
+        across consecutive observations.
+
+        This method only reports a recommendation. It does not perform
+        any infrastructure or worker provisioning.
+        """
+        with self.lock:
+            total_capacity = sum(
+                w.get("capacity", 0) for w in self.local_workers.values()
+            )
+            total_active_tasks = sum(
+                w.get("active_tasks", 0) for w in self.local_workers.values()
+            )
+
+        utilization = (
+            (total_active_tasks / total_capacity) * 100 if total_capacity > 0 else 0.0
+        )
+
+        self.utilization_history.append(utilization)
+
+        if len(self.utilization_history) > self.AUTOSCALE_REQUIRED_SAMPLES:
+            self.utilization_history.pop(0)
+
+        sustained_high_utilization = len(
+            self.utilization_history
+        ) >= self.AUTOSCALE_REQUIRED_SAMPLES and all(
+            value >= self.AUTOSCALE_UTILIZATION_THRESHOLD
+            for value in self.utilization_history
+        )
+
+        if sustained_high_utilization:
+            logger.warning(
+                "Worker auto-scale suggestion: utilization has remained "
+                "%.2f%% or higher for %d consecutive observations. "
+                "Consider adding workers.",
+                self.AUTOSCALE_UTILIZATION_THRESHOLD,
+                self.AUTOSCALE_REQUIRED_SAMPLES,
+            )
+
+        return {
+            "suggest_scale_up": sustained_high_utilization,
+            "utilization": round(utilization, 2),
+            "threshold": self.AUTOSCALE_UTILIZATION_THRESHOLD,
+            "required_samples": self.AUTOSCALE_REQUIRED_SAMPLES,
+            "observed_samples": len(self.utilization_history),
+        }
 
     def detect_unhealthy_workers(self) -> list[str]:
         """

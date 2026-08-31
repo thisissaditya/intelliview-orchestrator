@@ -1,3 +1,6 @@
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
+
 """
 FastAPI Orchestration Server
 Main entry point for the AI Interview Orchestrator API
@@ -23,8 +26,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from anyio import Path
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -90,6 +91,7 @@ from orchestrator.state_sync import StateSynchronizer
 from orchestrator.worker_registry import WorkerRegistry
 from routers.ab_testing import create_ab_testing_routes
 from routers.candidates import create_candidate_routes
+from routers.practice_sessions import router as practice_sessions_router
 from routers.questions import create_question_routes
 from routers.schedule import create_schedule_routes
 from routers.sessions import (  # noqa: F401 (re-exported for tests)
@@ -208,6 +210,25 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    headers = exc.headers or {}
+    if exc.status_code == 503:
+        if isinstance(exc.detail, dict):
+            body = {
+                "error": exc.detail.get("error", "service_unavailable"),
+                **exc.detail,
+            }
+        else:
+            body = {"error": "service_unavailable", "detail": str(exc.detail)}
+        headers.setdefault("Retry-After", "5")
+        return JSONResponse(status_code=503, content=body, headers=headers)
+    return JSONResponse(
+        status_code=exc.status_code, content={"detail": exc.detail}, headers=headers
+    )
+
 
 logging.getLogger("opentelemetry.exporter.otlp.proto.grpc.exporter").setLevel(
     logging.DEBUG
@@ -329,6 +350,7 @@ app.add_middleware(
     RequestValidationMiddleware,
     max_body_size_bytes=MAX_REQUEST_BODY_BYTES,
 )
+
 
 # ========== Auth ==========
 
@@ -608,7 +630,6 @@ async def readiness_probe():
     """Kubernetes-style readiness probe. Returns 200 only when all dependencies are up."""
     result = await health_monitor.readiness_check()
     if not result["ready"]:
-        from fastapi.responses import JSONResponse as _JSONResponse
 
         return _JSONResponse(status_code=503, content=result)
     return result
@@ -643,7 +664,6 @@ async def get_fairness_audit_report():
 
 
 if ENABLE_PROMETHEUS:
-    from fastapi.responses import Response as _Response
 
     from metrics.prometheus_metrics import get_metrics_text
 
@@ -664,7 +684,7 @@ if ENABLE_PROMETHEUS:
         WORKERS_HEALTHY.set(len(all_workers) - len(unhealthy))
         WORKERS_UNHEALTHY.set(len(unhealthy))
 
-        return _Response(
+        return Response(
             content=get_metrics_text(),
             media_type="text/plain; version=0.0.4; charset=utf-8",
         )
@@ -714,6 +734,19 @@ async def start_interview(
         HTTPException: On creation failure
     """
     try:
+        if hasattr(scheduler, "can_accept_task") and not scheduler.can_accept_task():
+            raise HTTPException(
+                status_code=503,
+                detail="No workers available",
+                headers={"Retry-After": "5"},
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=503, detail="No workers available", headers={"Retry-After": "5"}
+        )
+    try:
         logger.info(
             f"API: Creating interview session for candidate {request.candidate_id}"
         )
@@ -749,7 +782,6 @@ async def start_interview(
         try:
             if not scheduler.can_accept_task():
                 logger.warning(f"System at capacity, rejecting task: {session_id}")
-                from fastapi.responses import JSONResponse
 
                 return JSONResponse(
                     status_code=503,
@@ -758,7 +790,6 @@ async def start_interview(
                 )
         except Exception as e:
             logger.error(f"Error checking capacity: {e!s}")
-            from fastapi.responses import JSONResponse
 
             return JSONResponse(
                 status_code=503,
@@ -1056,6 +1087,7 @@ def _build_risk_report_pdf(report: dict) -> Response:
 
 
 app.include_router(create_candidate_routes(candidate_manager=candidate_manager))
+app.include_router(practice_sessions_router)
 app.include_router(create_schedule_routes())
 app.include_router(create_question_routes(question_bank=question_bank))
 app.include_router(create_settings_routes())
@@ -1228,7 +1260,7 @@ async def get_worker_distribution(
     except Exception as e:
         logger.error(f"Error fetching worker distribution: {e!s}")
         raise HTTPException(
-            status_code=500, detail="Error fetching worker distribution"
+            status_code=503, detail="Error fetching worker distribution"
         )
 
 
@@ -1733,7 +1765,7 @@ async def register_worker(request: WorkerRegistrationRequest):
         }
     except Exception as e:
         logger.error(f"Error registering worker: {e!s}")
-        raise HTTPException(status_code=500, detail=f"Error registering worker: {e!s}")
+        raise HTTPException(status_code=503, detail=f"Error registering worker: {e!s}")
 
 
 @app.post("/worker/heartbeat", dependencies=[Depends(require_token)])
@@ -1842,7 +1874,7 @@ async def list_workers():
     except Exception as e:
         logger.error(f"Error fetching worker list: {e!s}")
         raise HTTPException(
-            status_code=500, detail=f"Error fetching worker list: {e!s}"
+            status_code=503, detail=f"Error fetching worker list: {e!s}"
         )
 
 
@@ -1881,7 +1913,7 @@ async def get_worker_stats():
     except Exception as e:
         logger.error(f"Error generating worker statistics: {e!s}")
         raise HTTPException(
-            status_code=500, detail=f"Error generating worker statistics: {e!s}"
+            status_code=503, detail=f"Error generating worker statistics: {e!s}"
         )
 
 
@@ -2037,7 +2069,7 @@ async def deregister_worker(worker_id: str):
     except Exception as e:
         logger.error(f"Error deregistering worker: {e!s}")
         raise HTTPException(
-            status_code=500, detail=f"Error deregistering worker: {e!s}"
+            status_code=503, detail=f"Error deregistering worker: {e!s}"
         )
 
 
@@ -2180,7 +2212,7 @@ async def get_worker_health():
     except Exception as e:
         logger.error(f"Error fetching worker health: {e!s}")
         raise HTTPException(
-            status_code=500, detail=f"Error fetching worker health: {e!s}"
+            status_code=503, detail=f"Error fetching worker health: {e!s}"
         )
 
 
@@ -2443,18 +2475,13 @@ async def get_dashboard():
         HTML content of the dashboard
     """
     try:
+        from anyio import Path
+        from fastapi.responses import HTMLResponse
 
-        dashboard_path = os.path.join(
-            os.path.dirname(__file__), "..", "monitoring", "dashboard.html"
-        )
+        dashboard_path = Path(__file__).parent / ".." / "monitoring" / "dashboard.html"
 
-        dashboard_file = Path(dashboard_path)
-
-        if await dashboard_file.exists():
-            html_content = await dashboard_file.read_text(encoding="utf-8")
-
-            from fastapi.responses import HTMLResponse
-
+        if await dashboard_path.exists():
+            html_content = await dashboard_path.read_text(encoding="utf-8")
             return HTMLResponse(content=html_content)
         raise HTTPException(status_code=404, detail="Dashboard HTML not found")
     except HTTPException:

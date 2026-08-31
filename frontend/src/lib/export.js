@@ -361,3 +361,41 @@ export async function requestBackendPDF(sessionId) {
   link.click();
   URL.revokeObjectURL(url);
 }
+
+export async function exportAnalyticsPDF(data) {
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/analytics/export/pdf`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        candidates: data?.candidates ?? [],
+        stats: data?.stats ?? null,
+        faults: data?.faults ?? null,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to export PDF: ${errorText}`);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `analytics-report-${
+    new Date().toISOString().split("T")[0]
+  }.pdf`;
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  URL.revokeObjectURL(url);
+}
+

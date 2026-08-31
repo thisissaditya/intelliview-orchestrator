@@ -30,10 +30,15 @@ class CandidateManager:
         email: str,
         resume_text: str | None = None,
         skills: list[str] | None = None,
+        status: str | None = "unverified",
+        role: str | None = None,
     ) -> dict[str, Any]:
+        """Create a new candidate profile"""
+        import random
 
         candidate_id = f"candidate_{uuid.uuid4().hex[:12]}"
         now = utcnow()
+        token = "".join(random.choices("0123456789", k=6))
         db = SessionLocal()
 
         try:
@@ -46,6 +51,13 @@ class CandidateManager:
                 interview_history=[],
                 avg_score=None,
                 total_interviews=0,
+                is_verified=False,
+                verification_token=token,
+                practice_streak=0,
+                last_practice_date=None,
+                badges=[],
+                status=status or "unverified",
+                role=role,
                 created_at=now,
                 updated_at=now,
             )
@@ -62,6 +74,13 @@ class CandidateManager:
                 "interview_history": [],
                 "avg_score": None,
                 "total_interviews": 0,
+                "is_verified": False,
+                "verification_token": token,
+                "practice_streak": 0,
+                "last_practice_date": None,
+                "badges": [],
+                "status": status or "unverified",
+                "role": role,
                 "created_at": now.isoformat(),
             }
 
@@ -80,10 +99,7 @@ class CandidateManager:
 
         try:
             c = db.execute(
-                select(Candidate).where(
-                    Candidate.candidate_id == candidate_id,
-                    Candidate.deleted_at.is_(None),
-                )
+                select(Candidate).where(Candidate.candidate_id == candidate_id)
             ).scalar_one_or_none()
 
             if not c:
@@ -98,10 +114,73 @@ class CandidateManager:
                 "interview_history": c.interview_history or [],
                 "avg_score": c.avg_score,
                 "total_interviews": c.total_interviews,
-                "created_at": (c.created_at.isoformat() if c.created_at else None),
-                "updated_at": (c.updated_at.isoformat() if c.updated_at else None),
+                "is_verified": getattr(c, "is_verified", False),
+                "verification_token": getattr(c, "verification_token", None),
+                "practice_streak": getattr(c, "practice_streak", 0),
+                "last_practice_date": (
+                    c.last_practice_date.isoformat()
+                    if getattr(c, "last_practice_date", None)
+                    else None
+                ),
+                "badges": getattr(c, "badges", []) or [],
+                "status": getattr(c, "status", "unverified"),
+                "role": getattr(c, "role", None),
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "updated_at": c.updated_at.isoformat() if c.updated_at else None,
             }
 
+        finally:
+            db.close()
+
+    def update_candidate(
+        self,
+        candidate_id: str,
+        name: str,
+        email: str,
+        resume_text: str | None = None,
+        skills: list[str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Update editable candidate profile fields."""
+
+        db = SessionLocal()
+
+        try:
+            candidate = db.execute(
+                select(Candidate).where(Candidate.candidate_id == candidate_id)
+            ).scalar_one_or_none()
+
+            if not candidate:
+                return None
+
+            candidate.name = name.strip()
+            candidate.email = email.strip().lower()
+            candidate.resume_text = resume_text
+            candidate.skills = skills or []
+            candidate.updated_at = utcnow()
+
+            db.commit()
+            db.refresh(candidate)
+
+            return {
+                "candidate_id": candidate.candidate_id,
+                "name": candidate.name,
+                "email": candidate.email,
+                "resume_text": candidate.resume_text,
+                "skills": candidate.skills or [],
+                "interview_history": candidate.interview_history or [],
+                "avg_score": candidate.avg_score,
+                "total_interviews": candidate.total_interviews,
+                "created_at": (
+                    candidate.created_at.isoformat() if candidate.created_at else None
+                ),
+                "updated_at": (
+                    candidate.updated_at.isoformat() if candidate.updated_at else None
+                ),
+            }
+
+        except Exception:
+            db.rollback()
+            raise
         finally:
             db.close()
 
@@ -110,18 +189,19 @@ class CandidateManager:
         limit: int = 20,
         offset: int = 0,
         search: str | None = None,
+        status: str | None = None,
+        role: str | None = None,
         skill: str | None = None,
         position: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> list[dict[str, Any]]:
+        from sqlalchemy import func
 
         db = SessionLocal()
 
         try:
-
             query = select(Candidate)
-            query = query.where(Candidate.deleted_at.is_(None))
 
             if search and search.strip():
                 value = search.strip()
@@ -133,11 +213,20 @@ class CandidateManager:
                     )
                 )
 
+            if status and status.strip():
+                query = query.where(
+                    func.lower(Candidate.status) == status.strip().lower()
+                )
+
+            if role and role.strip():
+                query = query.where(func.lower(Candidate.role) == role.strip().lower())
+
             if skill and skill.strip():
 
                 query = query.where(
                     cast(Candidate.skills, Text).ilike(f"%{skill.strip()}%")
                 )
+
             # Position filter
             if position and position.strip():
                 query = query.where(
@@ -173,6 +262,17 @@ class CandidateManager:
                     "skills": c.skills or [],
                     "avg_score": c.avg_score,
                     "total_interviews": c.total_interviews,
+                    "is_verified": getattr(c, "is_verified", False),
+                    "verification_token": getattr(c, "verification_token", None),
+                    "practice_streak": getattr(c, "practice_streak", 0),
+                    "last_practice_date": (
+                        c.last_practice_date.isoformat()
+                        if getattr(c, "last_practice_date", None)
+                        else None
+                    ),
+                    "badges": getattr(c, "badges", []) or [],
+                    "status": getattr(c, "status", "unverified"),
+                    "role": getattr(c, "role", None),
                     "active_sessions": sum(
                         1
                         for session in c.interview_sessions
@@ -185,6 +285,7 @@ class CandidateManager:
                         if session.status == "COMPLETED"
                     ),
                     "created_at": (c.created_at.isoformat() if c.created_at else None),
+                    "updated_at": (c.updated_at.isoformat() if c.updated_at else None),
                 }
                 for c in rows
             ]
@@ -219,6 +320,102 @@ class CandidateManager:
             db.commit()
             return True
 
+        finally:
+            db.close()
+
+    def verify_candidate(self, email: str, token: str) -> bool:
+        """Verify candidate's email by checking token"""
+        db = SessionLocal()
+        try:
+            c = db.execute(
+                select(Candidate).where(Candidate.email == email.strip().lower())
+            ).scalar_one_or_none()
+            if not c or c.verification_token != token.strip():
+                return False
+            c.is_verified = True
+            c.status = "verified"
+            c.verification_token = None
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error verifying candidate {email}: {e}")
+            return False
+        finally:
+            db.close()
+
+    def record_practice(self, candidate_id: str) -> None:
+        """Update consecutive practice day streak and badges for a candidate."""
+        from datetime import timedelta, timezone
+
+        from sqlalchemy import func
+
+        db = SessionLocal()
+        try:
+            candidate = db.execute(
+                select(Candidate).where(Candidate.candidate_id == candidate_id)
+            ).scalar_one_or_none()
+            if not candidate:
+                return
+
+            now_utc = utcnow()
+            today_date = now_utc.date()
+
+            last_practice = candidate.last_practice_date
+            if last_practice:
+                if last_practice.tzinfo is None:
+                    last_practice = last_practice.replace(tzinfo=timezone.utc)
+                last_date = last_practice.astimezone(timezone.utc).date()
+            else:
+                last_date = None
+
+            streak = candidate.practice_streak or 0
+            if last_date is None:
+                streak = 1
+            elif last_date == today_date:
+                pass
+            elif last_date == today_date - timedelta(days=1):
+                streak += 1
+            else:
+                streak = 1
+
+            candidate.practice_streak = streak
+            candidate.last_practice_date = now_utc
+
+            badges = list(candidate.badges or [])
+            if streak >= 30 and "30-Day Streak" not in badges:
+                badges.append("30-Day Streak")
+            elif streak >= 14 and "14-Day Streak" not in badges:
+                badges.append("14-Day Streak")
+            elif streak >= 7 and "7-Day Streak" not in badges:
+                badges.append("7-Day Streak")
+            elif streak >= 3 and "3-Day Streak" not in badges:
+                badges.append("3-Day Streak")
+
+            total_sessions = (
+                db.execute(
+                    select(func.count(InterviewSession.session_id)).where(
+                        InterviewSession.candidate_id == candidate_id
+                    )
+                ).scalar()
+                or 0
+            )
+
+            if total_sessions >= 10 and "Interview Veteran" not in badges:
+                badges.append("Interview Veteran")
+            elif total_sessions >= 5 and "Interview Enthusiast" not in badges:
+                badges.append("Interview Enthusiast")
+            elif total_sessions >= 1 and "First Interview" not in badges:
+                badges.append("First Interview")
+
+            candidate.badges = badges
+            db.commit()
+            logger.info(
+                f"Recorded practice for candidate {candidate_id}. Streak: {streak}, Badges: {badges}"
+            )
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error recording practice for candidate {candidate_id}: {e}")
         finally:
             db.close()
 
@@ -261,6 +458,10 @@ class CandidateManager:
             c.updated_at = utcnow()
 
             db.commit()
+            db.close()
+
+            # Record practice outside active session transaction to avoid locking
+            self.record_practice(candidate_id)
             return True
 
         except Exception as e:
@@ -269,7 +470,10 @@ class CandidateManager:
             return False
 
         finally:
-            db.close()
+            try:
+                db.close()
+            except Exception:
+                pass
 
     def get_interview_history(
         self,

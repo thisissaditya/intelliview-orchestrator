@@ -60,6 +60,9 @@ class InterviewSession(Base):
     video_analysis = Column(JSON, nullable=True)
     audio_analysis = Column(JSON, nullable=True)
     evaluation_analysis = Column(JSON, nullable=True)
+
+    # Token & cost usage tracking
+    llm_usage = Column(JSON, nullable=True, default=dict)
     questions_asked = Column(JSON, nullable=True, default=list)
     answers_provided = Column(JSON, nullable=True, default=list)
     feedback_generated = Column(JSON, nullable=True, default=list)

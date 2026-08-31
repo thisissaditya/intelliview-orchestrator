@@ -22,7 +22,6 @@ SUPPORTED_EVENTS = {
     "interview_reminder",
     "interview_cancelled",
     "interview_completed",
-    "interview_rescheduled",
 }
 
 # Supported placeholders

@@ -30,30 +30,6 @@ PROMPT_CATEGORIES = {
         "tensorflow",
         "pytorch",
     ],
-    "System Design": [
-        "system design",
-        "microservices",
-        "distributed system",
-        "scalability",
-        "load balancing",
-        "system architecture",
-    ],
-    "Security": [
-        "cybersecurity",
-        "authentication",
-        "authorization",
-        "encryption",
-        "vulnerability",
-        "penetration testing",
-    ],
-    "Frontend": [
-        "frontend development",
-        "react",
-        "html",
-        "css",
-        "user interface",
-        "ui development",
-    ],
 }
 
 

@@ -1,5 +1,3 @@
-import csv
-import json
 import logging
 from collections import defaultdict
 from typing import Any
@@ -57,11 +55,7 @@ class BiasAuditor:
             except (TypeError, ValueError):
                 continue
 
-            group_value = self._resolve_group_value(
-                evaluation,
-                demographic_attribute,
-            )
-
+            group_value = self._resolve_group_value(evaluation, demographic_attribute)
             if group_value is None:
                 continue
 
@@ -87,7 +81,6 @@ class BiasAuditor:
         average_scores = [
             summary["average_score"] for summary in group_details.values()
         ]
-
         fairness_gap = (
             round(max(average_scores) - min(average_scores), 3)
             if len(average_scores) > 1
@@ -95,21 +88,16 @@ class BiasAuditor:
         )
 
         recommendations: list[str] = []
-
         if len(group_details) >= 2 and fairness_gap > self.ALERT_THRESHOLD:
             recommendations.append(
-                f"Investigate score differences for "
-                f"{demographic_attribute} before finalizing outcomes."
+                f"Investigate score differences for {demographic_attribute} before finalizing outcomes."
             )
             status = "ALERT"
-
         elif len(group_details) >= 2 and fairness_gap > self.REVIEW_THRESHOLD:
             recommendations.append(
-                "Review scoring dispersion across demographic groups "
-                "for potential bias."
+                "Review scoring dispersion across demographic groups for potential bias."
             )
             status = "REVIEW"
-
         else:
             status = "PASS"
 
@@ -133,94 +121,14 @@ class BiasAuditor:
             "sample_size": sum(summary["count"] for summary in group_details.values()),
         }
 
-    @staticmethod
-    def export_metrics_json(
-        metrics: list[dict[str, Any]],
-        file_path: str,
-    ) -> str:
-        """Export fairness metrics to a JSON file.
-
-        Each metric should contain:
-            metric: str
-            group: str
-            value: number
-            threshold_breached: bool
-
-        Empty metric lists are supported and produce a valid JSON array.
-        """
-        with open(
-            file_path,
-            "w",
-            encoding="utf-8",
-        ) as file:
-            json.dump(
-                metrics or [],
-                file,
-                indent=4,
-            )
-
-        return file_path
-
-    @staticmethod
-    def export_metrics_csv(
-        metrics: list[dict[str, Any]],
-        file_path: str,
-    ) -> str:
-        """Export fairness metrics to a CSV file.
-
-        Each metric should contain:
-            metric: str
-            group: str
-            value: number
-            threshold_breached: bool
-
-        Empty metric lists are supported and produce a valid CSV
-        containing the required header row.
-        """
-        fieldnames = [
-            "metric",
-            "group",
-            "value",
-            "threshold_breached",
-        ]
-
-        with open(
-            file_path,
-            "w",
-            newline="",
-            encoding="utf-8",
-        ) as file:
-            writer = csv.DictWriter(
-                file,
-                fieldnames=fieldnames,
-            )
-
-            writer.writeheader()
-
-            for metric in metrics or []:
-                writer.writerow(
-                    {
-                        "metric": metric.get("metric"),
-                        "group": metric.get("group"),
-                        "value": metric.get("value"),
-                        "threshold_breached": metric.get("threshold_breached"),
-                    }
-                )
-
-        return file_path
-
     def _resolve_group_value(
-        self,
-        evaluation: dict[str, Any],
-        demographic_attribute: str,
+        self, evaluation: dict[str, Any], demographic_attribute: str
     ) -> Any:
         direct_value = evaluation.get(demographic_attribute)
-
         if direct_value is not None:
             return direct_value
 
         candidate_id = evaluation.get("candidate_id")
-
         if not candidate_id or self.db_session is None:
             return None
 
@@ -228,7 +136,6 @@ class BiasAuditor:
             candidate = self.db_session.execute(
                 select(Candidate).where(Candidate.candidate_id == str(candidate_id))
             ).scalar_one_or_none()
-
         except Exception as exc:  # pragma: no cover - defensive logging path
             logger.debug(
                 "Unable to resolve demographic attribute for candidate %s: %s",
@@ -241,7 +148,6 @@ class BiasAuditor:
             return None
 
         demographics = candidate.demographics or {}
-
         if isinstance(demographics, dict):
             return demographics.get(demographic_attribute)
 
@@ -251,8 +157,6 @@ class BiasAuditor:
     def _normalize_group_value(value: Any) -> str:
         if value is None:
             return "unknown"
-
         if isinstance(value, str):
             return value.strip().lower()
-
         return str(value).strip().lower()

@@ -151,6 +151,37 @@ services:
         limits:
           memory: 2G
           cpus: "4.0"
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-interview-celery-beat
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ai_interview_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    working_dir: /app
+    networks:
+      - ai-interview-network
+    command:
+      - celery
+      - -A
+      - workers.celery_app.celery_app
+      - beat
+      - --loglevel=info
+    restart: unless-stopped
 
   cv-service:
     build:

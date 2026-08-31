@@ -17,8 +17,6 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 from digest_builder import build_digest
-
-# Import modular components
 from models import DigestFrequency, DigestPayload, DigestRecipient, InterviewEvent
 from renderer import render_digest_html, render_digest_text
 from sender import send_digest_for_recipient

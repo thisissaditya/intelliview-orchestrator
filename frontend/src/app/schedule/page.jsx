@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import useSWR from "swr";
-import { api, endpoints } from "@/lib/api";
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -21,18 +20,16 @@ import {
 
 import Card from "@/components/Card";
 import Button from "@/components/Button";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@/components/Dialog";
 import { Badge } from "@/components/Badge";
 import { Skeleton } from "@/components/States";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui";
+import AddToCalendarButton from "@/components/AddToCalendarButton";
+
+const fetcher = (url) => fetch(url).then((res) => res.json());
 
 export default function SchedulePage() {
-  const { data: candidateData, isLoading: loadingCandidates } = useSWR("candidates", endpoints.candidates);
-  const { data: scheduleData, mutate: refreshSchedules, isLoading: loadingSchedules } = useSWR("schedule", () => endpoints.schedule());
+  const { data: candidateData, isLoading: loadingCandidates } = useSWR("/candidates", fetcher);
+  const { data: scheduleData, mutate: refreshSchedules, isLoading: loadingSchedules } = useSWR("/api/schedule", fetcher);
 
   // Form State
   const [selectedCandidateId, setSelectedCandidateId] = useState("");
@@ -54,13 +51,6 @@ export default function SchedulePage() {
   const [notification, setNotification] = useState(null);
   const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
   const [statusFilter, setStatusFilter] = useState("all");
-  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const [scheduleToCancel, setScheduleToCancel] = useState(null);
-
-  const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
-  const [scheduleToReschedule, setScheduleToReschedule] = useState(null);
-  const [rescheduleAt, setRescheduleAt] = useState("");
-  const [isUpdatingSchedule, setIsUpdatingSchedule] = useState(false);
 
   const sampleCandidates = [
     { id: "cand-101", name: "Jyoshna Sankarapu (Candidate)", email: "jyoshna@example.com" },
@@ -102,8 +92,20 @@ export default function SchedulePage() {
         scheduled_at: new Date(scheduledAt).toISOString(),
         notes: notes,
         send_email: sendEmail,
-      };      
-      const data = await endpoints.createSchedule(payload);
+      };
+
+      const res = await fetch("/api/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.detail || "Failed to schedule interview.");
+      }
+
       setNotification({
         type: "success",
         message: `Interview scheduled successfully! ${
@@ -126,148 +128,16 @@ export default function SchedulePage() {
   // Status Change Handler
   const handleStatusUpdate = async (scheduleId, newStatus) => {
     try {
-      await endpoints.updateSchedule(scheduleId, { status: newStatus });
-      refreshSchedules();
+      const res = await fetch(`/api/schedule/${scheduleId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (res.ok) {
+        refreshSchedules();
+      }
     } catch (err) {
       console.error("Failed to update status", err);
-      try {
-        const res = await fetch(`/api/schedule/${scheduleId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: newStatus }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.detail || "Failed to update schedule.");
-        }
-        setNotification({
-          type: "success",
-          message: `Interview marked as ${newStatus}.`,
-        });
-
-        await refreshSchedules();
-      } catch (err) {
-        setNotification({
-          type: "error",
-          message: err.message || "Failed to update schedule.",
-        });
-      }
-    }
-  };
-
-  const openRescheduleDialog = (schedule) => {
-    setScheduleToReschedule(schedule);
-
-    const date = new Date(schedule.scheduled_at);
-
-    const localDateTime = new Date(
-      date.getTime() - date.getTimezoneOffset() * 60000
-    )
-      .toISOString()
-      .slice(0, 16);
-
-    setRescheduleAt(localDateTime);
-    setRescheduleDialogOpen(true);
-  };
-
-  const handleReschedule = async () => {
-    if (!scheduleToReschedule || !rescheduleAt) {
-      return;
-    }
-
-    setIsUpdatingSchedule(true);
-
-    try {
-      const res = await fetch(
-        `/api/schedule/${scheduleToReschedule.id}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            schedule_id: scheduleToReschedule.id,
-            status: "rescheduled",
-            new_scheduled_at: new Date(rescheduleAt).toISOString(),
-            scheduled_at: new Date(rescheduleAt).toISOString(),
-          }),
-        }
-      );
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(
-          data.detail || "Failed to reschedule interview."
-        );
-      }
-
-      setNotification({
-        type: "success",
-        message: "Interview rescheduled successfully.",
-      });
-
-      setRescheduleDialogOpen(false);
-      setScheduleToReschedule(null);
-      setRescheduleAt("");
-
-      await refreshSchedules();
-    } catch (err) {
-      setNotification({
-        type: "error",
-        message: err.message || "Failed to reschedule interview.",
-      });
-    } finally {
-      setIsUpdatingSchedule(false);
-    }
-  };
-
-  const handleCancelConfirmed = async () => {
-    if (!scheduleToCancel) {
-      return;
-    }
-
-    setIsUpdatingSchedule(true);
-
-    try {
-      const res = await fetch(
-        `/api/schedule/${scheduleToCancel.id}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            schedule_id: scheduleToCancel.id,
-            status: "cancelled",
-          }),
-        }
-      );
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(
-          data.detail || "Failed to cancel interview."
-        );
-      }
-
-      setNotification({
-        type: "success",
-        message: "Interview cancelled successfully.",
-      });
-
-      setCancelDialogOpen(false);
-      setScheduleToCancel(null);
-
-      await refreshSchedules();
-    } catch (err) {
-      setNotification({
-        type: "error",
-        message: err.message || "Failed to cancel interview.",
-      });
-    } finally {
-      setIsUpdatingSchedule(false);
     }
   };
 
@@ -576,7 +446,6 @@ export default function SchedulePage() {
             >
               <option value="all">All Statuses</option>
               <option value="scheduled">Scheduled</option>
-              <option value="rescheduled">Rescheduled</option>
               <option value="completed">Completed</option>
               <option value="cancelled">Cancelled</option>
             </select>
@@ -636,8 +505,6 @@ export default function SchedulePage() {
                               ? "success"
                               : s.status === "cancelled"
                               ? "danger"
-                              : s.status === "rescheduled"
-                              ? "accent"
                               : "accent"
                           }
                         >
@@ -649,14 +516,19 @@ export default function SchedulePage() {
                       </Td>
                       <Td>
                         <div className="flex items-center gap-1.5">
-                          {(s.status === "scheduled" || s.status === "rescheduled") && (
+                          {s.status === "scheduled" && (
+                            <AddToCalendarButton
+                              title={`Interview: ${s.candidate_name}`}
+                              start={s.scheduled_at}
+                              durationMinutes={60}
+                              interviewerName={s.interviewer_id}
+                              candidateName={s.candidate_name}
+                              notes={s.notes}
+                              size="sm"
+                            />
+                          )}
+                          {s.status === "scheduled" && (
                             <>
-                              <button
-                                onClick={() => openRescheduleDialog(s)}
-                                className="px-2 py-1 text-[11px] rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/20"
-                              >
-                                Reschedule
-                              </button>
                               <button
                                 onClick={() => handleStatusUpdate(s.id, "completed")}
                                 className="px-2 py-1 text-[11px] rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20"
@@ -664,10 +536,7 @@ export default function SchedulePage() {
                                 Complete
                               </button>
                               <button
-                                onClick={() => {
-                                  setScheduleToCancel(s);
-                                  setCancelDialogOpen(true);
-                                }}
+                                onClick={() => handleStatusUpdate(s.id, "cancelled")}
                                 className="px-2 py-1 text-[11px] rounded bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20"
                               >
                                 Cancel
@@ -684,172 +553,6 @@ export default function SchedulePage() {
           </div>
         )}
       </div>
-
-      {/* Cancel Dialog */}
-      <Dialog
-        open={cancelDialogOpen}
-        onOpenChange={(open) => {
-          setCancelDialogOpen(open);
-
-          if (!open) {
-            setScheduleToCancel(null);
-          }
-        }}
-      >
-        <DialogContent className="max-w-md p-6">
-          <DialogTitle>
-            Cancel Interview
-          </DialogTitle>
-
-          <div className="mt-4 space-y-4">
-            <p className="text-sm text-zinc-400">
-              Are you sure you want to cancel this interview?
-            </p>
-
-            {scheduleToCancel && (
-              <div className="rounded-lg border border-zinc-700 bg-zinc-800/60 p-4 space-y-2">
-                <div className="text-sm font-medium text-zinc-100">
-                  {scheduleToCancel.candidate_name}
-                </div>
-
-                <div className="text-xs text-zinc-400">
-                  {scheduleToCancel.candidate_email}
-                </div>
-
-                <div className="text-xs text-zinc-400">
-                  Interviewer:{" "}
-                  <span className="text-zinc-200">
-                    {scheduleToCancel.interviewer_id}
-                  </span>
-                </div>
-
-                <div className="text-xs text-zinc-400">
-                  Scheduled:{" "}
-                  <span className="text-zinc-200">
-                    {new Date(
-                      scheduleToCancel.scheduled_at
-                    ).toLocaleString()}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setCancelDialogOpen(false);
-                  setScheduleToCancel(null);
-                }}
-                disabled={isUpdatingSchedule}
-                className="px-3 py-2 text-sm rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50"
-              >
-                Keep Interview
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCancelConfirmed}
-                disabled={isUpdatingSchedule}
-                className="px-3 py-2 text-sm rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
-              >
-                {isUpdatingSchedule ? "Cancelling..." : "Yes, Cancel Interview"}
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Reschedule Dialog */}
-      <Dialog
-        open={rescheduleDialogOpen}
-        onOpenChange={(open) => {
-          setRescheduleDialogOpen(open);
-
-          if (!open) {
-            setScheduleToReschedule(null);
-            setRescheduleAt("");
-          }
-        }}
-      >
-        <DialogContent className="max-w-md p-6">
-          <DialogTitle>
-            Reschedule Interview
-          </DialogTitle>
-
-          <div className="mt-4 space-y-4">
-            {scheduleToReschedule && (
-              <div className="rounded-lg border border-zinc-700 bg-zinc-800/60 p-4 space-y-2">
-                <div className="text-sm font-medium text-zinc-100">
-                  {scheduleToReschedule.candidate_name}
-                </div>
-
-                <div className="text-xs text-zinc-400">
-                  Interviewer:{" "}
-                  <span className="text-zinc-200">
-                    {scheduleToReschedule.interviewer_id}
-                  </span>
-                </div>
-
-                <div className="text-xs text-zinc-400">
-                  Current time:{" "}
-                  <span className="text-zinc-200">
-                    {new Date(
-                      scheduleToReschedule.scheduled_at
-                    ).toLocaleString()}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <div>
-              <label
-                htmlFor="rescheduleAt"
-                className="block text-xs font-medium text-zinc-400 mb-1"
-              >
-                New Interview Date & Time
-              </label>
-
-              <input
-                id="rescheduleAt"
-                type="datetime-local"
-                value={rescheduleAt}
-                min={new Date().toISOString().slice(0, 16)}
-                onChange={(e) => setRescheduleAt(e.target.value)}
-                disabled={isUpdatingSchedule}
-                required
-                className="w-full bg-zinc-800/90 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setRescheduleDialogOpen(false);
-                  setScheduleToReschedule(null);
-                  setRescheduleAt("");
-                }}
-                disabled={isUpdatingSchedule}
-                className="px-3 py-2 text-sm rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50"
-              >
-                Keep Current Time
-              </button>
-
-              <button
-                type="button"
-                onClick={handleReschedule}
-                disabled={isUpdatingSchedule || !rescheduleAt}
-                className="px-3 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {isUpdatingSchedule
-                  ? "Rescheduling..."
-                  : "Confirm Reschedule"}
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

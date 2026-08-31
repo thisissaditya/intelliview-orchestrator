@@ -31,240 +31,6 @@ COMMUNICATION_EVALUATION_PROMPT = (
     "pace_appropriateness (0-1)."
 )
 
-BEHAVIORAL_STAR_PROMPT = (
-    "You are an expert behavioral interviewer. "
-    "Generate behavioral interview questions that encourage candidates "
-    "to answer using the STAR method: Situation, Task, Action, and Result. "
-    "Questions must ask for a specific real experience rather than a "
-    "hypothetical situation or a general opinion. "
-    "When evaluating a candidate's answer, check whether it provides a "
-    "concrete Situation, Task, Action, and Result. "
-    "If the answer already provides a sufficiently concrete STAR example, "
-    "do not generate an unnecessary follow-up. "
-    "Evaluate the candidate answer provided below. "
-    "Candidate answer: {candidate_answer} "
-    "Return a JSON object with keys: "
-    "domain (string), question (string), "
-    "is_star_complete (boolean), follow_up_question (string or null)."
-)
-
-BEHAVIORAL_PROMPT_TEMPLATE = {
-    "domain": "behavioral",
-    "prompt_template": BEHAVIORAL_STAR_PROMPT,
-}
-
-# ---------------------------------------------------------------------------
-# Data Science Prompt Templates
-# ---------------------------------------------------------------------------
-
-DATA_SCIENCE_PROMPTS = [
-    {
-        "domain": "data-science",
-        "difficulty": "easy",
-        "prompt_template": (
-            "You are an expert Data Science interviewer. "
-            "Generate one easy-level statistics interview question for a beginner. "
-            "Focus on fundamental concepts such as mean, median, mode, variance, "
-            "standard deviation, probability, or basic distributions. "
-            "The question must be clear, technically accurate, relevant to Data Science, "
-            "and non-repetitive."
-        ),
-    },
-    {
-        "domain": "data-science",
-        "difficulty": "easy",
-        "prompt_template": (
-            "You are an expert Machine Learning interviewer. "
-            "Generate one easy-level Machine Learning interview question. "
-            "Focus on fundamental concepts such as supervised learning, "
-            "unsupervised learning, training data, testing data, features, labels, "
-            "or basic model evaluation. "
-            "The question should be suitable for a beginner and must be "
-            "clear, technically accurate, and non-repetitive."
-        ),
-    },
-    {
-        "domain": "data-science",
-        "difficulty": "easy",
-        "prompt_template": (
-            "You are a Data Science interviewer. "
-            "Generate one easy-level question about data preprocessing. "
-            "Focus on practical fundamentals such as missing values, duplicate data, "
-            "categorical encoding, scaling, or basic data cleaning. "
-            "The question should test understanding rather than memorization "
-            "and must be clear, relevant, and non-repetitive."
-        ),
-    },
-    {
-        "domain": "data-science",
-        "difficulty": "medium",
-        "prompt_template": (
-            "You are an experienced Machine Learning interviewer. "
-            "Generate one medium-level Machine Learning question involving "
-            "model selection, feature engineering, overfitting, cross-validation, "
-            "or evaluation metrics. "
-            "Require the candidate to explain their reasoning or apply the concept "
-            "to a practical situation. "
-            "The question must be technically accurate, relevant, and non-repetitive."
-        ),
-    },
-    {
-        "domain": "data-science",
-        "difficulty": "medium",
-        "prompt_template": (
-            "You are an experienced Data Science interviewer. "
-            "Generate one medium-level statistics question that requires "
-            "interpretation or practical application. "
-            "Focus on topics such as hypothesis testing, confidence intervals, "
-            "correlation, probability distributions, sampling, or statistical significance. "
-            "The question should require reasoning and must be clear, relevant, "
-            "technically accurate, and non-repetitive."
-        ),
-    },
-    {
-        "domain": "data-science",
-        "difficulty": "medium",
-        "prompt_template": (
-            "You are a Data Science interviewer. "
-            "Generate one medium-level practical Machine Learning scenario. "
-            "Ask the candidate to determine an appropriate approach for a problem "
-            "involving data preprocessing, class imbalance, model evaluation, "
-            "feature selection, or model improvement. "
-            "The question should test practical decision-making and must be "
-            "technically accurate and non-repetitive."
-        ),
-    },
-    {
-        "domain": "data-science",
-        "difficulty": "hard",
-        "prompt_template": (
-            "You are a senior Machine Learning interviewer. "
-            "Generate one hard-level Machine Learning question that tests "
-            "advanced reasoning and trade-offs. "
-            "Focus on topics such as model bias and variance, imbalanced datasets, "
-            "model interpretability, optimization, scalability, data leakage, "
-            "or production model failures. "
-            "The question should require a detailed technical explanation "
-            "and must be challenging, relevant, and non-repetitive."
-        ),
-    },
-    {
-        "domain": "data-science",
-        "difficulty": "hard",
-        "prompt_template": (
-            "You are a senior Data Science interviewer. "
-            "Generate one hard-level statistics question involving advanced "
-            "statistical reasoning, assumptions, uncertainty, experimentation, "
-            "causal reasoning, or statistical inference. "
-            "The question should require the candidate to analyze a situation, "
-            "identify assumptions, and justify their approach. "
-            "Ensure the question is technically accurate, challenging, "
-            "and non-repetitive."
-        ),
-    },
-    {
-        "domain": "data-science",
-        "difficulty": "hard",
-        "prompt_template": (
-            "You are a senior Data Science interviewer. "
-            "Generate one hard-level real-world Data Science case-study question. "
-            "Present a realistic business problem with incomplete or ambiguous "
-            "information. Require the candidate to reason about data collection, "
-            "preprocessing, feature engineering, model selection, evaluation, "
-            "business metrics, and trade-offs. "
-            "The question must be realistic, challenging, technically relevant, "
-            "and non-repetitive."
-        ),
-    },
-    {
-        "domain": "data-science",
-        "difficulty": "hard",
-        "prompt_template": (
-            "You are a senior Machine Learning interviewer. "
-            "Generate one hard-level production Machine Learning case-study question. "
-            "The scenario should involve challenges such as model drift, "
-            "data distribution changes, latency, scalability, monitoring, "
-            "retraining, or unreliable predictions. "
-            "Require the candidate to propose a solution and explain the trade-offs. "
-            "The question must test advanced problem-solving and be "
-            "technically accurate and non-repetitive."
-        ),
-    },
-]
-
-
-# ---------------------------------------------------------------------------
-# Marketing & Sales Prompt Templates
-# ---------------------------------------------------------------------------
-
-MARKETING_SALES_PROMPTS = [
-    {
-        "domain": "marketing-sales",
-        "prompt_template": (
-            "You are an expert marketing and sales interviewer. "
-            "Generate one realistic sales pitch interview question. "
-            "Give the candidate a specific product, target customer, and selling situation "
-            "and ask them to explain how they would pitch the product. "
-            "The question should test customer understanding, value proposition, "
-            "persuasion, and objection handling. "
-            "Make the scenario realistic and avoid generic interview questions."
-        ),
-    },
-    {
-        "domain": "marketing-sales",
-        "prompt_template": (
-            "You are an expert marketing interviewer. "
-            "Generate one campaign case-study interview question involving an "
-            "underperforming marketing campaign. "
-            "Provide realistic information such as the target audience, campaign goal, "
-            "and performance issue, then ask the candidate how they would diagnose "
-            "the problem and improve the campaign. "
-            "Test analytical thinking, audience segmentation, channel selection, "
-            "and campaign optimization. "
-            "Avoid generic questions."
-        ),
-    },
-    {
-        "domain": "marketing-sales",
-        "prompt_template": (
-            "You are an expert sales interviewer. "
-            "Generate one realistic customer-objection scenario. "
-            "Present a customer who is interested in a product but raises a specific "
-            "objection such as price, competitor preference, lack of trust, or unclear ROI. "
-            "Ask the candidate how they would respond and move the conversation toward "
-            "a successful sale. "
-            "Test consultative selling, active listening, and objection handling. "
-            "Avoid generic questions."
-        ),
-    },
-    {
-        "domain": "marketing-sales",
-        "prompt_template": (
-            "You are an expert growth marketing interviewer. "
-            "Generate one lead-conversion case study in which a company receives "
-            "many leads but has a low conversion rate. "
-            "Ask the candidate to identify possible causes and propose a strategy "
-            "to improve conversion. "
-            "The question should test funnel analysis, customer journey understanding, "
-            "experimentation, and marketing-sales alignment. "
-            "Make the scenario practical and non-generic."
-        ),
-    },
-    {
-        "domain": "marketing-sales",
-        "prompt_template": (
-            "You are a senior marketing and sales interviewer. "
-            "Generate one go-to-market case-study question for launching a new product "
-            "in a competitive market. "
-            "Ask the candidate to explain how they would identify the target market, "
-            "position the product, choose acquisition channels, define pricing, "
-            "and measure launch success. "
-            "The scenario should require strategic reasoning and realistic trade-offs "
-            "rather than a generic marketing plan."
-        ),
-    },
-]
-
 
 # ---------------------------------------------------------------------------
 # Junior System Design Prompt Templates
@@ -377,12 +143,6 @@ SYSTEM_DESIGN_PROMPT_CONFIGS = [
         "prompt_template": SENIOR_SYSTEM_DESIGN_TRANSACTIONS_PROMPT,
     },
 ]
-
-
-# ---------------------------------------------------------------------------
-# Product Management Prompt Templates
-# ---------------------------------------------------------------------------
-
 PRODUCT_MANAGEMENT_PROMPTS = [
     {
         "domain": "product",
@@ -459,11 +219,6 @@ PRODUCT_MANAGEMENT_PROMPTS = [
     },
 ]
 
-
-# ---------------------------------------------------------------------------
-# SDE Prompt Templates
-# ---------------------------------------------------------------------------
-
 SDE_PROMPT_TEMPLATES = [
     {
         "domain": "sde",
@@ -515,3 +270,67 @@ SDE_PROMPT_TEMPLATES = [
         ),
     },
 ]
+
+
+# ---------------------------------------------------------------------------
+# Post-Interview Candidate NPS Survey
+# ---------------------------------------------------------------------------
+
+CANDIDATE_SURVEY_PROMPT = (
+    "The interview is now complete. Thank the candidate for their time. "
+    "In the same message, ask two optional questions and state plainly "
+    "that the answers are about the interview process and do not affect "
+    "their evaluation.\n\n"
+    "Question 1: On a scale of 0 to 10, how likely are you to recommend "
+    "interviewing at {company_name} to a friend or colleague?\n"
+    "Question 2: What is the main reason for that score?\n\n"
+    "Rules:\n"
+    "- Both questions in a single message. Never split across turns.\n"
+    "- Whole message under 60 words. No preamble, no small talk.\n"
+    "- Neutral tone. No hoping they enjoyed it, no praise, no consolation, "
+    "no hint about performance.\n"
+    "- If they ask how they did or what happens next: brief answer that "
+    "results come from the {company_name} team, then repeat the two "
+    "questions once.\n"
+    "- If they give a reason but no number, ask once for a 0-10 number "
+    "and nothing more.\n"
+    "- If they decline, skip, or still give no number, thank them and end. "
+    "Never guess a score. Never ask a third time.\n"
+    "- No probing, no follow-ups, no arguing with a low score."
+)
+
+SURVEY_EXTRACTION_PROMPT = (
+    "Extract the candidate's NPS survey response from the text below. "
+    "Return JSON only — no prose, no markdown fences.\n\n"
+    "Candidate reply:\n{candidate_reply}\n\n"
+    "Required JSON shape:\n"
+    '{{"nps_score": <int 0-10 or null>, "verbatim": <string or null>, '
+    '"declined": <bool>, "notes": <string or null>}}\n\n'
+    "Rules:\n"
+    "- Only fill nps_score if a number was actually stated. Words count "
+    '("eight", "a solid nine"), as do "8/10" and "8 out of ten".\n'
+    '- NEVER infer a score from tone. "That was great!" with no number '
+    "is nps_score null, not 10. This is the most important rule.\n"
+    '- A range ("8 or 9") takes the lower value; put the detail in notes.\n'
+    '- Out-of-scale numbers clamp into 0-10 ("11/10" becomes 10); '
+    "note the original value in notes.\n"
+    "- verbatim is a lightly trimmed copy of what they said — no "
+    "summarising, rewriting, or cleaning up their opinion.\n"
+    "- declined is true only if they refused or skipped the survey.\n"
+    "- If nothing usable is found, return nulls with declined false."
+)
+
+
+def nps_category(score):
+    """Return the NPS category for a given score.
+
+    Returns ``"promoter"`` for 9-10, ``"passive"`` for 7-8,
+    ``"detractor"`` for 0-6, or ``None`` when *score* is ``None``.
+    """
+    if score is None:
+        return None
+    if score >= 9:
+        return "promoter"
+    if score >= 7:
+        return "passive"
+    return "detractor"

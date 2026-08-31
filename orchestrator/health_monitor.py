@@ -19,9 +19,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, text
-
-from config import DATABASE_URL
 from orchestrator.redis_client import get_redis_client
 
 logger = logging.getLogger(__name__)
@@ -286,10 +283,10 @@ class HealthMonitor:
         dep = DependencyStatus("postgres")
         start = time.monotonic()
         try:
-            engine = create_engine(DATABASE_URL)
+            from database.db import engine
 
             with engine.connect() as conn:
-                result = conn.execute(text("SELECT 1"))
+                result = conn.execute(__import__("sqlalchemy").text("SELECT 1 AS ok"))
                 row = result.fetchone()
                 dep.healthy = row is not None and row[0] == 1
             dep.latency_ms = (time.monotonic() - start) * 1000

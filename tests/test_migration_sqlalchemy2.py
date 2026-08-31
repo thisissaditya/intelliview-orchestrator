@@ -28,7 +28,6 @@ def db_session(postgres_container):
         postgres_container.get_connection_url(),
         future=True,
     )
-    # Clean database before test
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
 

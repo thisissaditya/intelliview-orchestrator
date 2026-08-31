@@ -2,11 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main, Stabilized-version,issue-22-dataset-validation]
+    branches: [main, Stabilized-version]
 
   pull_request:
-    branches: [main, Stabilized-version,issue-22-dataset-validation]
-  workflow_dispatch:
+    branches: [main, Stabilized-version]
 
 permissions:
   contents: read
@@ -76,7 +75,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
               pip install "packaging<26"
-          pip install "ruff==0.9.10" "black==25.1.0" "isort==6.0.1"
+          pip install "ruff==0.9.10" "black==26.5.1" "isort==6.0.1"
       - name: Black format check
         run: python -m black --check .
       - name: isort import check

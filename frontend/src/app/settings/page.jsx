@@ -46,7 +46,6 @@ export default function SettingsPage() {
   });
 
   const settings = useSWR("/settings");
-  const riskConfig = useSWR("/api/admin/risk-config", endpoints.getRiskConfig);
 
   useEffect(() => {
     if (settings.data?.company_name) {
@@ -292,101 +291,11 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
-
-      <div className="space-y-6">
-        <Card
-          title="Risk Engine Configuration"
-          description="Current risk weights, thresholds, and scoring factors. Read-only."
-        >
-          {riskConfig.error ? (
-            <ErrorState
-              error={riskConfig.error}
-              onRetry={() => riskConfig.mutate()}
-            />
-          ) : !riskConfig.data ? (
-            <Skeleton className="h-64 w-full" />
-          ) : (
-            <div className="space-y-5">
-              <div>
-                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                  Pipeline Weights
-                </h4>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  {Object.entries(riskConfig.data.pipeline_weights).map(
-                    ([name, value]) => (
-                      <div
-                        key={name}
-                        className="rounded-md border border-border bg-bg-card p-3"
-                      >
-                        <div className="text-xs capitalize text-muted">
-                          {name}
-                        </div>
-                        <div className="mt-1 text-sm font-medium text-zinc-100">
-                          {value}
-                        </div>
-                      </div>
-                    )
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                  Thresholds
-                </h4>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  {Object.entries(riskConfig.data.thresholds).map(
-                    ([name, value]) => (
-                      <div
-                        key={name}
-                        className="rounded-md border border-border bg-bg-card p-3"
-                      >
-                        <div className="text-xs capitalize text-muted">
-                          {name}
-                        </div>
-                        <div className="mt-1 text-sm font-medium text-zinc-100">
-                          {value}
-                        </div>
-                      </div>
-                    )
-                  )}
-                </div>
-              </div>
-
-              {[
-                ["Video Factors", riskConfig.data.video_factors],
-                ["Audio Factors", riskConfig.data.audio_factors],
-                ["Evaluation Factors", riskConfig.data.evaluation_factors],
-              ].map(([title, factors]) => (
-                <div key={title}>
-                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                    {title}
-                  </h4>
-
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {Object.entries(factors).map(([name, value]) => (
-                      <div
-                        key={name}
-                        className="flex items-center justify-between rounded-md border border-border bg-bg-card px-3 py-2"
-                      >
-                        <span className="text-xs text-zinc-300">
-                          {name.replaceAll("_", " ")}
-                        </span>
-                        <span className="text-xs font-medium text-zinc-100">
-                          {value}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-          <Card
+          <div className="space-y-6">
+            <Card
               title="Load balancing"
               description="Switch the active strategy at runtime."
-          >
+            >
               {scheduling.error ? (
                 <ErrorState
                   error={scheduling.error}

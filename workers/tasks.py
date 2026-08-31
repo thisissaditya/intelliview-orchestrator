@@ -9,14 +9,7 @@ Pipeline:
      has exhausted retries (see `celery_app.task_failure` signal).
 """
 
-from celery import shared_task
-
-
-@shared_task
-def reevaluate_stuck_sessions(threshold_hours=24):
-    print("Re-evaluating stuck sessions...")
-    return "Completed re-evaluation."
-
+from __future__ import annotations
 
 import logging
 import socket
@@ -28,7 +21,7 @@ from celery.exceptions import Retry
 from sqlalchemy import select
 
 from database.db import SessionLocal
-from database.models import InterviewSession
+from database.models import InterviewSchedule, InterviewSession
 from monitoring.prometheus_metrics import (
     AVG_EVALUATION_LATENCY,
     FAILURE_COUNT,
@@ -389,14 +382,59 @@ def process_interview_session(self, session_id):
         )
 
         raise self.retry(exc=exc, countdown=retry_delay)
-    # ... end of process_interview_session above ...
 
 
-@celery_app.task(bind=True, name="workers.tasks.re_evaluate_stuck_sessions")
-def re_evaluate_stuck_sessions(self, threshold_hours: int = 2):
-    """
-    Issue #42: Periodic re-evaluation task.
-    Re-runs risk evaluation on sessions flagged as 'stuck' or older than a threshold.
-    """
-    logger.info("Starting periodic re-evaluation of stuck sessions")
-    # ... rest of the code ...
+@celery_app.task(name="workers.tasks.detect_no_shows")
+def detect_no_shows() -> dict:
+    """Automatically mark overdue scheduled interviews as no-shows."""
+
+    db_session = SessionLocal()
+
+    try:
+        now = datetime.now(timezone.utc)
+
+        schedules = (
+            db_session.execute(
+                select(InterviewSchedule).where(
+                    InterviewSchedule.scheduled_at < now,
+                    InterviewSchedule.status == "scheduled",
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        marked_no_shows = []
+
+        for schedule in schedules:
+            session = db_session.execute(
+                select(InterviewSession).where(
+                    InterviewSession.candidate_id == schedule.candidate_id,
+                    InterviewSession.start_time.is_not(None),
+                    InterviewSession.start_time >= schedule.scheduled_at,
+                )
+            ).scalar_one_or_none()
+
+            if session is None:
+                schedule.status = "no-show"
+                marked_no_shows.append(schedule.id)
+
+        db_session.commit()
+
+        logger.info(
+            "No-show detection completed: %d interviews marked as no-show",
+            len(marked_no_shows),
+        )
+
+        return {
+            "marked_no_shows": marked_no_shows,
+            "count": len(marked_no_shows),
+        }
+
+    except Exception:
+        db_session.rollback()
+        logger.exception("No-show detection failed")
+        raise
+
+    finally:
+        db_session.close()

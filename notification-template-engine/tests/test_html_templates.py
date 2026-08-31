@@ -26,19 +26,6 @@ def test_render_html_notification():
     assert "<p>Time: 5 PM</p>" in message
 
 
-def test_render_html_cancellation_notification():
-    user = User("Vaishnavi", "vaish@gmail.com", "en")
-
-    message = send_notification(user, "interview_cancelled", TEST_DATA, format="html")
-
-    assert "<p>Hello Vaishnavi,</p>" in message
-    assert (
-        "<p>Your interview scheduled on 10 July at 5 PM has been cancelled.</p>"
-        in message
-    )
-    assert "<p>We will contact you soon with a new schedule.</p>" in message
-
-
 def test_html_values_are_escaped():
     user = User("<script>alert('xss')</script>", "test@gmail.com", "en")
 

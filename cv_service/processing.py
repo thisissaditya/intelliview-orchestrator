@@ -1,15 +1,26 @@
+try:
+    import cv2
+except ImportError:
+    import types
+
+    cv2 = types.ModuleType("cv2")
+    cv2.imdecode = lambda *args, **kwargs: None
+    cv2.imread = lambda *args, **kwargs: None
+    cv2.cvtColor = lambda *args, **kwargs: None
+    cv2.COLOR_BGR2RGB = 4
+    cv2.IMREAD_COLOR = 1
 import logging
 import time
 from typing import Any
 
 try:
-    import cv2
     import mediapipe as mp
 
     HAS_MEDIAPIPE = True
-
 except ImportError:
+    mp = None
     HAS_MEDIAPIPE = False
+
 logger = logging.getLogger(__name__)
 
 

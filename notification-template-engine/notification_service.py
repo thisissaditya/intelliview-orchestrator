@@ -12,7 +12,6 @@ def render_template(template, values):
     Replaces placeholders dynamically.
     Raises an error if a required placeholder value is missing.
     """
-
     validate_template_variables(template, values)
 
     placeholders = re.findall(r"\{\{(.*?)\}\}", template)
@@ -35,6 +34,11 @@ def send_notification(user, event, data, format="txt"):
 
     if not isinstance(data, dict):
         raise ValueError("Notification data must be a dictionary.")
+
+    # Check notification preference before sending.
+    if not user.is_notification_enabled(event):
+        logging.info(f"Notification '{event}' disabled for {user.name}")
+        return None
 
     template = load_template(user.locale, event, format=format)
 

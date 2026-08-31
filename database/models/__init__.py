@@ -12,6 +12,7 @@ from database.models.interview_schedule import InterviewSchedule
 from database.models.interview_session import InterviewSession
 from database.models.interview_template import InterviewTemplate
 from database.models.notification import Notification
+from database.models.practice_session import PracticeSession
 from database.models.question import Question
 from database.models.system_settings import SystemSettings
 from database.models.user import User
@@ -23,6 +24,7 @@ __all__ = [
     "InterviewSession",
     "InterviewTemplate",
     "Notification",
+    "PracticeSession",
     "Question",
     "SystemSettings",
     "User",

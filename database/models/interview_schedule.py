@@ -25,12 +25,23 @@ class InterviewSchedule(Base):
     """InterviewSchedule model for managing scheduled interview events."""
 
     __tablename__ = "interview_schedules"
+
     __table_args__ = (
         UniqueConstraint(
-            "candidate_id", "scheduled_at", name="uq_schedule_candidate_slot"
+            "candidate_id",
+            "scheduled_at",
+            name="uq_schedule_candidate_slot",
         ),
-        Index("ix_schedule_interviewer_time", "interviewer_id", "scheduled_at"),
-        Index("ix_schedule_status_time", "status", "scheduled_at"),
+        Index(
+            "ix_schedule_interviewer_time",
+            "interviewer_id",
+            "scheduled_at",
+        ),
+        Index(
+            "ix_schedule_status_time",
+            "status",
+            "scheduled_at",
+        ),
     )
 
     id = Column(

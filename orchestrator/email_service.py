@@ -177,6 +177,109 @@ IntelliView Interview Team
             logger.warning(error_msg)
             return False, error_msg
 
+    def send_verification_email(
+        self,
+        candidate_name: str,
+        candidate_email: str,
+        token: str,
+    ) -> tuple[bool, str]:
+        """
+        Send a verification email with an OTP/link to the candidate.
+        """
+        import html
+
+        sender_email = self.settings.smtp_from_email or "notifications@intelliview.ai"
+        host = self.settings.smtp_host or "localhost"
+        port = self.settings.smtp_port or 1025
+
+        safe_name = html.escape(candidate_name)
+        safe_email = html.escape(candidate_email)
+        safe_token = html.escape(token)
+
+        # Fallback logging for local development
+        logger.info(
+            f"[DEV FALLBACK] Verification code generated for {candidate_email}: {token}"
+        )
+
+        subject = "Verify Your Email - IntelliView"
+
+        text_body = f"""Dear {candidate_name},
+
+Thank you for registering. Please verify your email using the following verification token/OTP:
+
+Token: {token}
+
+Best regards,
+IntelliView Team
+"""
+
+        html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #09090b; color: #f4f4f5; margin: 0; padding: 20px; }}
+    .card {{ max-width: 600px; margin: 0 auto; background-color: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 28px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }}
+    .header {{ border-bottom: 1px solid #27272a; padding-bottom: 16px; margin-bottom: 20px; }}
+    .header h2 {{ color: #6366f1; margin: 0; font-size: 22px; }}
+    .token {{ font-size: 24px; font-weight: bold; color: #38bdf8; letter-spacing: 2px; background-color: #27272a; padding: 12px; border-radius: 6px; text-align: center; margin: 20px 0; }}
+    .footer {{ margin-top: 24px; border-top: 1px solid #27272a; padding-top: 16px; font-size: 12px; color: #71717a; text-align: center; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h2>✉️ Verify Your Email</h2>
+    </div>
+    <p>Dear <strong>{safe_name}</strong>,</p>
+    <p>Thank you for registering. Please use the verification code below to verify your email address and enable interview scheduling:</p>
+    <div class="token">{safe_token}</div>
+    <p>Or click this link to verify: <a href="http://localhost:3000/candidates/verify?email={safe_email}&token={safe_token}" style="color: #6366f1;">Verify Email</a></p>
+    <div class="footer">
+      IntelliView AI Interview Platform &bull; Automated Notification
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+        message = MIMEMultipart("alternative")
+        message["Subject"] = subject
+        message["From"] = sender_email
+        message["To"] = candidate_email
+
+        message.attach(MIMEText(text_body, "plain"))
+        message.attach(MIMEText(html_body, "html"))
+
+        try:
+            logger.info(
+                f"Attempting to send verification email via SMTP to {candidate_email} via {host}:{port}"
+            )
+            if port == 465:
+                with smtplib.SMTP_SSL(host=host, port=port, timeout=10) as server:
+                    if self.settings.smtp_user and self.settings.smtp_password:
+                        server.login(
+                            self.settings.smtp_user, self.settings.smtp_password
+                        )
+                    server.send_message(message)
+            else:
+                with smtplib.SMTP(host=host, port=port, timeout=10) as server:
+                    if self.settings.smtp_use_tls:
+                        server.starttls()
+                    if self.settings.smtp_user and self.settings.smtp_password:
+                        server.login(
+                            self.settings.smtp_user, self.settings.smtp_password
+                        )
+                    server.send_message(message)
+
+            logger.info("Verification email successfully dispatched.")
+            return True, "Email sent successfully"
+
+        except Exception as e:
+            error_msg = f"Failed to send verification email: {e!s}"
+            logger.warning(error_msg)
+            return False, error_msg
+
 
 # Default instance
 email_service = EmailService()
