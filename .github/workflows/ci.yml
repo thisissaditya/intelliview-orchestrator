@@ -267,11 +267,18 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/intelliview-fastapi:latest
+               ${{ secrets.DOCKER_USERNAME }}/intelliview-fastapi:${{ github.sha }}
       - name: Build and push Worker image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/intelliview-worker:latest
+               ${{ secrets.DOCKER_USERNAME }}/intelliview-worker:${{ github.sha }}
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+              ${{ secrets.DOCKER_USERNAME }}/intelliview-frontend:${{ github.sha }}
