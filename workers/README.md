@@ -17,6 +17,9 @@ submitted" to "here's the risk report," this is the place to look.
   three analysis stages.
 - `risk_engine.py` – combines all three stage outputs into a final risk
   score/report.
+- [`docs/integrity-score-schema.md`](../docs/integrity-score-schema.md) –
+  canonical anti-cheat `integrity_score` contract shared by backend and
+  frontend.
 - `ai_client.py` – shared client the pipelines use to talk to the AI
   provider.
 - `worker_agent.py` / `worker_entrypoint.py` – how a worker process boots.

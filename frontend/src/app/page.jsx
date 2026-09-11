@@ -23,7 +23,6 @@ const MAX_SAMPLES = 20;
 export default function OverviewPage() {
  
   const health = useSWR("/system-health", { refreshInterval: 3000 });
-  const forceLoading = true;
   const workers = useSWR("/workers", { refreshInterval: 5000 });
   const stats = useSWR("/session-statistics", { refreshInterval: 5000 });
   const active = useSWR("/active-sessions", { refreshInterval: 3000 });

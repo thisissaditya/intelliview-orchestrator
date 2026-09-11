@@ -196,7 +196,7 @@ export default function RiskTimeline({
 
                 {moment.metadata &&
                   Object.keys(moment.metadata).length > 0 && (
-                    <div className="mt-3 text-xs text-muted">
+                    <div className="mt-3 text-xs text-muted break-words">
                       {Object.entries(moment.metadata).map(([key, value]) => (
                         <div key={key}>
                           <span className="font-medium">{key}:</span>{" "}
@@ -208,7 +208,7 @@ export default function RiskTimeline({
 
                 {moment.data &&
                   Object.keys(moment.data).length > 0 && (
-                    <div className="mt-3 text-xs text-muted">
+                    <div className="mt-3 text-xs text-muted break-words">
                       {Object.entries(moment.data).map(([key, value]) => (
                         <div key={key}>
                           <span className="font-medium">{key}:</span>{" "}

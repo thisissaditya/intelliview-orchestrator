@@ -6,6 +6,9 @@ export function useWebSocket({ path, onMessage, enabled = true }) {
   const [connected, setConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState(null);
   const [reconnectCount, setReconnectCount] = useState(0);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const [error, setError] = useState(null);
   const wsRef = useRef(null);
   const retryRef = useRef(0);
   const onMessageRef = useRef(onMessage);
@@ -42,16 +45,19 @@ export function useWebSocket({ path, onMessage, enabled = true }) {
     function scheduleReconnect() {
       if (cancelled || reconnectScheduled) return;
       reconnectScheduled = true;
+      setReconnecting(true);
       const delay = Math.min(15_000, 500 * 2 ** retryRef.current);
       timer = setTimeout(() => {
         reconnectScheduled = false;
         retryRef.current = Math.min(retryRef.current + 1, 8);
+        setRetryAttempt(retryRef.current);
         connect();
       }, delay);
     }
 
     function connect() {
       if (cancelled) return;
+
       try {
         const ws = new WebSocket(api.wsUrl(path));
         wsRef.current = ws;
@@ -62,13 +68,35 @@ export function useWebSocket({ path, onMessage, enabled = true }) {
             return;
           }
           setConnected(true);
+          setReconnecting(false);
+          setRetryAttempt(0);
+          setError(null);
           retryRef.current = 0;
+
+          const token = api.token;
+
+          if (!token) {
+            ws.close(1008, "missing token");
+            return;
+          }
+
+          ws.send(JSON.stringify({
+            type: "auth",
+            token,
+          }));
         };
 
         ws.onmessage = (event) => {
           if (cancelled) return;
+
           try {
             const data = JSON.parse(event.data);
+
+            if (data?.type === "hello") {
+              setConnected(true);
+              retryRef.current = 0;
+            }
+
             setLastMessage(data);
             onMessageRef.current?.(data);
           } catch {
@@ -76,7 +104,9 @@ export function useWebSocket({ path, onMessage, enabled = true }) {
           }
         };
 
-        ws.onerror = () => {};
+        ws.onerror = () => {
+          setError("Voice stream connection failed.");
+        };
 
         ws.onclose = () => {
           setConnected(false);
@@ -93,18 +123,37 @@ export function useWebSocket({ path, onMessage, enabled = true }) {
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
+
       const ws = wsRef.current;
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+
+      if (
+        ws &&
+        (ws.readyState === WebSocket.OPEN ||
+          ws.readyState === WebSocket.CONNECTING)
+      ) {
         ws.close();
       }
+
       wsRef.current = null;
     };
   }, [path, enabled, reconnectCount]);
 
-  return { connected, lastMessage, send, disconnect, reconnect };
+  return {
+    connected,
+    lastMessage,
+    send,
+    disconnect,
+    reconnect,
+    reconnecting,
+    retryAttempt,
+    error,
+  };
 }
 
-export function useRealtimeSubscription(path, { enabled = true, onEvent } = {}) {
+export function useRealtimeSubscription(
+  path,
+  { enabled = true, onEvent } = {},
+) {
   const [events, setEvents] = useState([]);
   const [isLive, setIsLive] = useState(false);
   const maxEvents = 100;
@@ -121,7 +170,11 @@ export function useRealtimeSubscription(path, { enabled = true, onEvent } = {}) 
     [onEvent],
   );
 
-  const { connected } = useWebSocket({ path, onMessage: handleMessage, enabled });
+  const { connected } = useWebSocket({
+    path,
+    onMessage: handleMessage,
+    enabled,
+  });
 
   const clearEvents = useCallback(() => setEvents([]), []);
 

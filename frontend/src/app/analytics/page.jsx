@@ -35,6 +35,7 @@ import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { exportAnalyticsCSV, exportAnalyticsPDF } from "@/lib/export";
+import { endpoints } from "@/lib/api";
 
 
 
@@ -512,10 +513,174 @@ function WeakAreaTagCloud({ sessions }) {
   );
 }
 
+function IntegrityTrendChart({ sessions }) {
+  const trendData = useMemo(() => {
+    if (!sessions || sessions.length === 0) {
+      return [];
+    }
+
+    const buckets = {};
+
+    sessions.forEach((session) => {
+      const integrityScore = Number(session.integrity_score);
+
+      if (!Number.isFinite(integrityScore)) {
+        return;
+      }
+
+      const rawDate =
+        session.updated_at ||
+        session.created_at ||
+        session.completed_at ||
+        "";
+
+      if (!rawDate) {
+        return;
+      }
+
+      const date = new Date(rawDate);
+
+      if (Number.isNaN(date.getTime())) {
+        return;
+      }
+
+      const bucketKey = `${date.getFullYear()}-${String(
+        date.getMonth() + 1
+      ).padStart(2, "0")}`;
+
+      if (!buckets[bucketKey]) {
+        buckets[bucketKey] = {
+          period: bucketKey,
+          total: 0,
+          sum: 0,
+        };
+      }
+
+      buckets[bucketKey].total += 1;
+      buckets[bucketKey].sum += integrityScore;
+    });
+
+    return Object.values(buckets)
+      .sort((a, b) => a.period.localeCompare(b.period))
+      .map((bucket) => ({
+        period: bucket.period,
+        integrityScore: Number(
+          (bucket.sum / bucket.total).toFixed(3)
+        ),
+      }));
+  }, [sessions]);
+
+  return (
+    <Card
+      title="Integrity score trend"
+      description="Historical average integrity score across interview sessions."
+    >
+      {trendData.length === 0 ? (
+        <div className="py-8 text-center text-sm text-muted">
+          No integrity score data available yet.
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={280}>
+          <LineChart data={trendData}>
+            <CartesianGrid strokeDasharray="3 3" />
+
+            <XAxis dataKey="period" />
+
+            <YAxis
+              domain={[0, 1]}
+              tickFormatter={(value) => value.toFixed(1)}
+            />
+
+            <Tooltip
+              {...TOOLTIP_STYLE}
+              formatter={(value) => [
+                Number(value).toFixed(3),
+                "Integrity score",
+              ]}
+            />
+
+            <Line
+              type="monotone"
+              dataKey="integrityScore"
+              name="Integrity score"
+              stroke="#10b981"
+              strokeWidth={2}
+              dot
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+    </Card>
+  );
+}
 
 
+function IntegrityDistribution({ sessions }) {
+  const data = useMemo(() => {
+    const buckets = [
+      { name: "High (≥0.8)", value: 0, color: "#10b981" },
+      { name: "Moderate (0.6-0.8)", value: 0, color: "#f59e0b" },
+      { name: "Low (<0.6)", value: 0, color: "#ef4444" },
+    ];
 
+    sessions.forEach((session) => {
+      const score = Number(session.integrity_score);
 
+      if (!Number.isFinite(score)) {
+        return;
+      }
+
+      if (score >= 0.8) {
+        buckets[0].value += 1;
+      } else if (score >= 0.6) {
+        buckets[1].value += 1;
+      } else {
+        buckets[2].value += 1;
+      }
+    });
+
+    return buckets;
+  }, [sessions]);
+
+  const hasData = data.some((item) => item.value > 0);
+
+  return (
+    <Card
+      title="Integrity distribution"
+      description="Sessions grouped by historical integrity score."
+    >
+      {!hasData ? (
+        <div className="py-8 text-center text-sm text-muted">
+          No integrity score data available yet.
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={280}>
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              outerRadius={90}
+              innerRadius={50}
+            >
+              {data.map((item, index) => (
+                <Cell
+                  key={index}
+                  fill={item.color}
+                />
+              ))}
+            </Pie>
+
+            <Tooltip {...TOOLTIP_STYLE} />
+            <Legend />
+          </PieChart>
+        </ResponsiveContainer>
+      )}
+    </Card>
+  );
+}
 
 
 export default function AnalyticsPage(){
@@ -527,81 +692,51 @@ export default function AnalyticsPage(){
 // =============================
 
 
-const [candidates,setCandidates]=useState([]);
+const candidatesQuery = useSWR("/candidates");
+const candidates = candidatesQuery.data?.candidates ?? [];
+const [submittingCandidate, setSubmittingCandidate] = useState(false);
 
-
-
-const [candidateForm,setCandidateForm]=useState({
-
- name:"",
- role:"",
- status:"Scheduled",
- score:"",
- risk:""
-
+const [candidateForm, setCandidateForm] = useState({
+  name: "",
+  role: "",
+  status: "Scheduled",
+  score: "",
+  risk: ""
 });
 
+const addCandidate = async () => {
+  if (!candidateForm.name || !candidateForm.role) {
+    toast.error("Candidate name and role required");
+    return;
+  }
 
+  setSubmittingCandidate(true);
+  try {
+    const slugName = candidateForm.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, ".");
+    const email = `${slugName}@example.com`;
+    await endpoints.createCandidate({
+      name: candidateForm.name.trim(),
+      email: email,
+      role: candidateForm.role.trim(),
+      status: candidateForm.status || "unverified",
+    });
 
+    await candidatesQuery.mutate();
 
+    setCandidateForm({
+      name: "",
+      role: "",
+      status: "Scheduled",
+      score: "",
+      risk: ""
+    });
 
-const addCandidate=()=>{
-
-const removeCandidate = (id) => {
-
-  setCandidates((prev) =>
-    prev.filter((candidate) => candidate.id !== id)
-  );
-
-  toast.success(
-    "Candidate removed"
-  );
-
-};
- if(
- !candidateForm.name ||
- !candidateForm.role
- ){
-
- toast.error(
- "Candidate name and role required"
- );
-
- return;
-
- }
-
-
-
- setCandidates([
-
- ...candidates,
-
- {
-  id:Date.now(),
-  ...candidateForm
- }
-
- ]);
-
-
-
- setCandidateForm({
-
- name:"",
- role:"",
- status:"Scheduled",
- score:"",
- risk:""
-
- });
-
-
- toast.success(
- "Candidate added"
- );
-
-
+    toast.success("Candidate added");
+  } catch (err) {
+    toast.error("Failed to add candidate", err instanceof Error ? err.message : String(err));
+  } finally {
+    setSubmittingCandidate(false);
+  }
 };
 
 
@@ -1027,11 +1162,13 @@ High
 
 onClick={addCandidate}
 
-className="rounded bg-accent px-4 py-2 text-white"
+disabled={submittingCandidate}
+
+className="rounded bg-accent px-4 py-2 text-white disabled:opacity-50"
 
 >
 
-Add Candidate
+{submittingCandidate ? "Adding..." : "Add Candidate"}
 
 </button>
 
@@ -1109,7 +1246,7 @@ candidates.map((c)=>(
 
 
 <tr
-key={c.id}
+key={c.candidate_id || c.id}
 className="border-t border-border"
 >
 
@@ -1120,7 +1257,7 @@ className="border-t border-border"
 
 
 <td>
-{c.role}
+{c.role || c.position || "—"}
 </td>
 
 
@@ -1132,15 +1269,11 @@ className="border-t border-border"
 <td>
 
 {
-c.score
+c.score != null
 ?
-
-c.score+"%"
-
+c.score + "%"
 :
-
-"-"
-
+"—"
 }
 
 </td>
@@ -1149,8 +1282,7 @@ c.score+"%"
 <td>
 
 {
-c.risk || "-"
-
+c.avg_risk_score != null ? c.avg_risk_score.toFixed(2) : (c.risk || "—")
 }
 
 </td>
@@ -1351,7 +1483,24 @@ stats.data.risk_score_stats
 
 />
 
+<Stat
+  label="Avg integrity"
+  value={(() => {
+    const scores = filteredSessions
+      .map((session) => Number(session.integrity_score))
+      .filter((score) => Number.isFinite(score));
 
+    if (scores.length === 0) {
+      return "—";
+    }
+
+    const average =
+      scores.reduce((sum, score) => sum + score, 0) /
+      scores.length;
+
+    return average.toFixed(3);
+  })()}
+/>
 
 <Stat
 
@@ -1537,7 +1686,15 @@ sessions={filteredSessions}
 
 
 </div>
+<div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+  <IntegrityDistribution
+    sessions={filteredSessions}
+  />
 
+  <IntegrityTrendChart
+    sessions={filteredSessions}
+  />
+</div>
 
 
 

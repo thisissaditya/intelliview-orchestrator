@@ -1,34 +1,67 @@
-FROM python:3.11-slim-bullseye
+# =========================================================
+# Stage 1: Builder
+# =========================================================
+FROM python:3.11-slim-bookworm AS builder
 
-# ---------------------------------------------------------
-# Environment
-# ---------------------------------------------------------
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
 
-# ---------------------------------------------------------
-# Working directory
-# ---------------------------------------------------------
 WORKDIR /app
 
-# ---------------------------------------------------------
-# System dependencies
-# ---------------------------------------------------------
+# Build-time dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    procps \
     gcc \
     g++ \
     build-essential \
-    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# ---------------------------------------------------------
+# Create isolated Python environment
+RUN python -m venv /opt/venv
+
+# Copy dependency file first for better layer caching
+COPY requirements.txt /app/requirements.txt
+
+# Install CPU-only PyTorch
+RUN pip install --no-cache-dir \
+    torch \
+    --index-url https://download.pytorch.org/whl/cpu
+
+# Install application dependencies
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+
+# =========================================================
+# Stage 2: Runtime
+# =========================================================
+FROM python:3.11-slim-bookworm AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+
+# Runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    procps \
+    libglib2.0-0 \
+    libgl1 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user
-# ---------------------------------------------------------
 RUN groupadd --system --gid 1001 appgroup && \
     useradd --system \
     --uid 1001 \
@@ -37,64 +70,32 @@ RUN groupadd --system --gid 1001 appgroup && \
     --home-dir /home/appuser \
     appuser
 
-# ---------------------------------------------------------
-# Copy dependency file first
-# This improves Docker layer caching
-# ---------------------------------------------------------
-COPY requirements.txt /app/requirements.txt
+# Copy installed Python environment
+COPY --from=builder /opt/venv /opt/venv
 
-# ---------------------------------------------------------
-# Install PyTorch CPU version
-# ---------------------------------------------------------
-RUN pip install --no-cache-dir \
-    torch \
-    --index-url https://download.pytorch.org/whl/cpu
-
-# ---------------------------------------------------------
-# Install Python dependencies
-# ---------------------------------------------------------
-RUN pip install --no-cache-dir -r /app/requirements.txt
-
-# ---------------------------------------------------------
 # Copy application
-# ---------------------------------------------------------
 COPY . /app
 
-# ---------------------------------------------------------
-# Create writable directories
-# ---------------------------------------------------------
+# Create writable directories and set ownership
 RUN mkdir -p \
     /app/data \
     /app/.cache \
     /app/logs \
-    /app/tmp
+    /app/tmp && \
+    chown -R appuser:appgroup /app /opt/venv
 
-# ---------------------------------------------------------
-# Set ownership
-# ---------------------------------------------------------
-RUN chown -R appuser:appgroup /app
-
-# ---------------------------------------------------------
 # Run as non-root
-# ---------------------------------------------------------
 USER appuser
 
-# ---------------------------------------------------------
-# Port
-# ---------------------------------------------------------
 EXPOSE 8000
 
-# ---------------------------------------------------------
 # FastAPI healthcheck
-# ---------------------------------------------------------
 HEALTHCHECK --interval=30s \
     --timeout=10s \
     --start-period=40s \
     --retries=3 \
     CMD curl -fsS http://localhost:8000/health || exit 1
 
-# ---------------------------------------------------------
 # Default application
-# docker-compose overrides this for worker/flower
-# ---------------------------------------------------------
+# docker-compose overrides this for worker/flower/etc.
 CMD ["uvicorn", "orchestrator.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { endpoints } from "@/lib/api";
+import { Skeleton, ErrorState, EmptyState } from "@/components/States";
+
 
 export default function QuestionsPage() {
   const [questions, setQuestions] = useState([]);
@@ -30,8 +31,13 @@ export default function QuestionsPage() {
       const data = await response.json();
 
       setQuestions(data.questions || []);
-    } catch (err) {
-      setError(err.message || "Unable to load questions");
+        } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Unable to load questions";
+
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -147,45 +153,27 @@ export default function QuestionsPage() {
 
         {/* Loading */}
         {loading && (
-          <div className="rounded-xl bg-white p-8 text-center shadow-sm">
-            Loading questions...
-          </div>
-        )}
+          <Skeleton className="h-48 w-full" />
+       )}
 
         {/* Error */}
         {!loading && error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-6">
-            <h2 className="font-semibold text-red-700">
-              Unable to load questions
-            </h2>
-
-            <p className="mt-2 text-sm text-red-600">
-              {error}
-            </p>
-
-            <button
-              onClick={loadQuestions}
-              className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-white"
-            >
-              Try Again
-            </button>
-          </div>
+          <ErrorState
+            error={error}
+            onRetry={loadQuestions}
+          />
         )}
+                    
 
         {/* Empty */}
         {!loading &&
-          !error &&
-          totalVisible === 0 && (
-            <div className="rounded-xl bg-white p-10 text-center shadow-sm">
-              <h2 className="text-lg font-semibold text-gray-800">
-                No questions found
-              </h2>
-
-              <p className="mt-2 text-gray-500">
-                Try another category or search term.
-              </p>
-            </div>
-          )}
+        !error &&
+        totalVisible === 0 && (
+          <EmptyState
+            title="No questions found"
+            description="Try another category or search term."
+          />
+        )}
 
         {/* Question groups */}
         {!loading &&

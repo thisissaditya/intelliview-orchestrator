@@ -96,7 +96,7 @@ export default function VideoPlayer() {
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <label className="block rounded-lg border border-border bg-bg-card p-3">
+        <label className="block min-w-0 rounded-lg border border-border bg-bg-card p-3">
           <span className="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-300">
             <FileVideo size={14} />
             Interview video
@@ -105,14 +105,14 @@ export default function VideoPlayer() {
             type="file"
             accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"
             onChange={handleVideoChange}
-            className="block w-full text-xs text-muted file:mr-3 file:rounded-md file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-accent-dark"
+            className="block w-full max-w-full text-xs text-muted file:mr-3 file:rounded-md file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-accent-dark"
           />
           <span className={cn("mt-2 block truncate text-xs", videoFile ? "text-zinc-300" : "text-muted")}>
             {videoFile ? videoFile.name : "No video selected"}
           </span>
         </label>
 
-        <label className="block rounded-lg border border-border bg-bg-card p-3">
+        <label className="block min-w-0 rounded-lg border border-border bg-bg-card p-3">
           <span className="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-300">
             <Captions size={14} />
             WebVTT captions
@@ -121,7 +121,7 @@ export default function VideoPlayer() {
             type="file"
             accept=".vtt,text/vtt"
             onChange={handleCaptionChange}
-            className="block w-full text-xs text-muted file:mr-3 file:rounded-md file:border-0 file:bg-bg-panel file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-zinc-200 hover:file:bg-border"
+            className="block w-full max-w-full text-xs text-muted file:mr-3 file:rounded-md file:border-0 file:bg-bg-panel file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-zinc-200 hover:file:bg-border"
           />
           <span className={cn("mt-2 block truncate text-xs", captionFile ? "text-zinc-300" : "text-muted")}>
             {captionFile ? captionFile.name : "No captions selected"}

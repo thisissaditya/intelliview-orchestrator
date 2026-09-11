@@ -7,12 +7,47 @@ Includes token usage tracking for OpenAI, Gemini, and Grok calls.
 
 import logging
 import os
+import time
 from typing import Any
 
+from workers.tts_engine import synthesize_speech
+
 logger = logging.getLogger(__name__)
+AUDIO_MAX_RETRIES = int(os.getenv("AUDIO_MAX_RETRIES", "3"))
+AUDIO_RETRY_BASE_DELAY = float(os.getenv("AUDIO_RETRY_BASE_DELAY", "0.5"))
+
+
+def _retry_with_backoff(operation, operation_name: str):
+    """Run a transient audio operation with bounded exponential backoff."""
+    for attempt in range(1, AUDIO_MAX_RETRIES + 1):
+        try:
+            return operation()
+        except Exception as exc:
+            if attempt == AUDIO_MAX_RETRIES:
+                logger.warning(
+                    "%s failed after %d attempts: %s",
+                    operation_name,
+                    attempt,
+                    exc,
+                )
+                break
+
+            delay = AUDIO_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            logger.warning(
+                "%s failed on attempt %d/%d; retrying in %.2fs: %s",
+                operation_name,
+                attempt,
+                AUDIO_MAX_RETRIES,
+                delay,
+                exc,
+            )
+            time.sleep(delay)
+
+    return None
+
 
 # ---------------------------------------------------------------------------
-# Feature detection — import optional dependencies at module level so the
+# Feature detection â€” import optional dependencies at module level so the
 # rest of the codebase can branch on `HAS_OPENAI`, `HAS_WHISPER`, etc.
 # ---------------------------------------------------------------------------
 
@@ -27,11 +62,11 @@ try:
     else:
         openai_client = None
         HAS_OPENAI = False
-        logger.info("No OPENAI_API_KEY — OpenAI client unavailable")
+        logger.info("No OPENAI_API_KEY â€” OpenAI client unavailable")
 except ImportError:
     openai_client = None
     HAS_OPENAI = False
-    logger.info("openai package not installed — OpenAI client unavailable")
+    logger.info("openai package not installed â€” OpenAI client unavailable")
 
 try:
     import google.generativeai as genai
@@ -45,11 +80,11 @@ try:
     else:
         gemini_model = None
         HAS_GEMINI = False
-        logger.info("No GEMINI_API_KEY — Gemini client unavailable")
+        logger.info("No GEMINI_API_KEY â€” Gemini client unavailable")
 except ImportError:
     gemini_model = None
     HAS_GEMINI = False
-    logger.info("google-generativeai not installed — Gemini client unavailable")
+    logger.info("google-generativeai not installed â€” Gemini client unavailable")
 
 try:
     from openai import OpenAI as GrokClient
@@ -65,11 +100,11 @@ try:
     else:
         grok_client = None
         HAS_GROK = False
-        logger.info("No GROK_API_KEY — Grok client unavailable")
+        logger.info("No GROK_API_KEY â€” Grok client unavailable")
 except ImportError:
     grok_client = None
     HAS_GROK = False
-    logger.info("openai package not installed — Grok client unavailable")
+    logger.info("openai package not installed â€” Grok client unavailable")
 
 try:
     import whisper  # type: ignore
@@ -81,7 +116,7 @@ try:
 except Exception:
     whisper_model = None
     HAS_WHISPER = False
-    logger.info("Whisper not available — falling back to mock STT")
+    logger.info("Whisper not available â€” falling back to mock STT")
 
 try:
     import cv2
@@ -91,7 +126,22 @@ try:
     logger.info("MediaPipe + OpenCV available")
 except ImportError:
     HAS_MEDIAPIPE = False
-    logger.info("MediaPipe/OpenCV not installed — falling back to mock face detection")
+    logger.info(
+        "MediaPipe/OpenCV not installed â€” falling back to mock face detection"
+    )
+
+try:
+    import pyttsx3
+
+    _tts_engine = pyttsx3.init()
+    _tts_engine.setProperty("rate", 175)  # speaking speed (words per minute)
+    _tts_engine.setProperty("volume", 1.0)  # volume 0.0 to 1.0
+    HAS_TTS = True
+    logger.info("pyttsx3 TTS engine initialised successfully")
+except Exception:
+    _tts_engine = None
+    HAS_TTS = False
+    logger.info("pyttsx3 not available — TTS will be skipped")
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +207,7 @@ def chat_completion(
             )
 
         logger.info(
-            "OpenAI call finished [%s] — Tokens: Prompt=%d, Completion=%d, Total=%d",
+            "OpenAI call finished [%s] â€” Tokens: Prompt=%d, Completion=%d, Total=%d",
             model,
             usage["prompt_tokens"],
             usage["completion_tokens"],
@@ -217,7 +267,7 @@ def gemini_generate(
         )
 
         logger.info(
-            "Gemini generation finished [%s] — Tokens: Prompt=%d, Completion=%d, Total=%d",
+            "Gemini generation finished [%s] â€” Tokens: Prompt=%d, Completion=%d, Total=%d",
             model_name,
             usage["prompt_tokens"],
             usage["completion_tokens"],
@@ -273,7 +323,7 @@ def gemini_chat(
         )
 
         logger.info(
-            "Gemini chat finished [%s] — Tokens: Prompt=%d, Completion=%d, Total=%d",
+            "Gemini chat finished [%s] â€” Tokens: Prompt=%d, Completion=%d, Total=%d",
             model_name,
             usage["prompt_tokens"],
             usage["completion_tokens"],
@@ -323,7 +373,7 @@ def grok_completion(
             )
 
         logger.info(
-            "Grok completion finished [%s] — Tokens: Prompt=%d, Completion=%d, Total=%d",
+            "Grok completion finished [%s] â€” Tokens: Prompt=%d, Completion=%d, Total=%d",
             model,
             usage["prompt_tokens"],
             usage["completion_tokens"],
@@ -333,6 +383,34 @@ def grok_completion(
     except Exception as exc:
         logger.warning("Grok completion failed: %s", exc)
         return None, _build_usage_dict("grok", model)
+
+
+# ---------------------------------------------------------------------------
+# Text-to-Speech helpers
+# ---------------------------------------------------------------------------
+
+
+def text_to_speech(text: str) -> bytes:
+    """Convert interview question text to WAV audio bytes.
+
+    Raises:
+        ValueError: If the input text is empty.
+        RuntimeError: If speech synthesis fails.
+    """
+    if not text or not text.strip():
+        raise ValueError("TTS text must not be empty.")
+
+    try:
+        audio = synthesize_speech(text)
+        if not audio:
+            raise RuntimeError("TTS synthesis returned empty audio.")
+
+        return audio
+    except ValueError:
+        raise
+    except Exception as exc:
+        logger.error("TTS synthesis failed: %s", exc)
+        raise RuntimeError(f"TTS synthesis failed: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -349,20 +427,26 @@ def transcribe_audio_file(
     """Transcribe an audio file using VAD pre-filtering and local Whisper.
 
     Executes VAD pre-filtering and sends ONLY extracted speech segments to Whisper:
-    - Silent or near-silent audio files skip Whisper execution completely to conserve compute.
+    - Silent or near-silent audio files skip Whisper execution completely.
     - Mid-file silence is trimmed out; only speech chunk arrays are passed to Whisper.
     - Preserves timestamps aligned with the original recording.
     """
     if not HAS_WHISPER:
         return None
+
     try:
         from workers.vad import VoiceActivityDetector
 
-        # Run VAD ONCE if speech_segments not provided
         detector = VoiceActivityDetector(vad_config)
 
         if raw_audio:
-            result = whisper_model.transcribe(audio_path)
+            result = _retry_with_backoff(
+                lambda: whisper_model.transcribe(audio_path),
+                "Whisper audio transcription",
+            )
+
+            if result is None:
+                return None
 
             return {
                 "text": result.get("text", "").strip(),
@@ -376,10 +460,9 @@ def transcribe_audio_file(
         if speech_segments is None:
             speech_segments = detector.process_audio(audio_path)
 
-        # Skip transcription completely if audio is silent
         if len(speech_segments) == 0:
             logger.info(
-                "VAD detected silence only in %s — skipping Whisper transcription.",
+                "VAD detected silence only in %s - skipping Whisper transcription.",
                 audio_path,
             )
             return {
@@ -391,17 +474,19 @@ def transcribe_audio_file(
                 "total_speech_duration": 0.0,
             }
 
-        # Transcribe ONLY the extracted speech segments to trim out mid-file silence
         all_texts = []
         aligned_whisper_segments = []
         detected_language = "en"
 
         for seg in speech_segments:
             samples = getattr(seg, "audio_samples", None)
+
             if samples is None and os.path.exists(audio_path):
                 raw_samples, sr = detector._load_samples(
-                    audio_path, detector.config.sample_rate
+                    audio_path,
+                    detector.config.sample_rate,
                 )
+
                 if len(raw_samples) > 0:
                     start_sec = getattr(
                         seg,
@@ -413,6 +498,7 @@ def transcribe_audio_file(
                         "end",
                         seg.get("end", 0.0) if isinstance(seg, dict) else 0.0,
                     )
+
                     start_idx = int(start_sec * sr)
                     end_idx = min(len(raw_samples), int(end_sec * sr))
                     samples = raw_samples[start_idx:end_idx]
@@ -420,41 +506,66 @@ def transcribe_audio_file(
             if samples is None or len(samples) == 0:
                 continue
 
-            seg_result = whisper_model.transcribe(samples)
+            seg_result = _retry_with_backoff(
+                lambda samples=samples: whisper_model.transcribe(samples),
+                "Whisper segment transcription",
+            )
+
             if seg_result is None:
                 continue
 
             seg_text = seg_result.get("text", "").strip()
+
             if seg_text:
                 all_texts.append(seg_text)
 
-            detected_language = seg_result.get("language", detected_language)
+            detected_language = seg_result.get(
+                "language",
+                detected_language,
+            )
+
             seg_start = getattr(
-                seg, "start", seg.get("start", 0.0) if isinstance(seg, dict) else 0.0
+                seg,
+                "start",
+                seg.get("start", 0.0) if isinstance(seg, dict) else 0.0,
             )
 
             for w_seg in seg_result.get("segments", []):
                 aligned_w_seg = dict(w_seg)
-                aligned_w_seg["start"] = round(seg_start + w_seg.get("start", 0.0), 3)
-                aligned_w_seg["end"] = round(seg_start + w_seg.get("end", 0.0), 3)
+                aligned_w_seg["start"] = round(
+                    seg_start + w_seg.get("start", 0.0),
+                    3,
+                )
+                aligned_w_seg["end"] = round(
+                    seg_start + w_seg.get("end", 0.0),
+                    3,
+                )
                 aligned_whisper_segments.append(aligned_w_seg)
 
         combined_text = " ".join(all_texts).strip()
+
         vad_summary = [
             s.to_dict() if hasattr(s, "to_dict") else s for s in speech_segments
         ]
+
         speech_duration = sum(
             getattr(
-                s, "duration", s.get("duration", 0.0) if isinstance(s, dict) else 0.0
+                s,
+                "duration",
+                s.get("duration", 0.0) if isinstance(s, dict) else 0.0,
             )
             for s in speech_segments
         )
 
         return {
-            "text": result.get("text", ""),
-            "language": result.get("language", "en"),
-            "segments": result.get("segments", []),
+            "text": combined_text,
+            "language": detected_language,
+            "segments": aligned_whisper_segments,
+            "silence_only": not bool(combined_text),
+            "vad_segments": vad_summary,
+            "total_speech_duration": speech_duration,
         }
+
     except Exception as exc:
         logger.warning("Whisper transcription failed: %s", exc)
         return None
@@ -580,3 +691,78 @@ def detect_hand_gaze(
     except Exception as exc:
         logger.warning("MediaPipe hand detection failed: %s", exc)
         return None
+
+
+def speak_text(text: str) -> bool:
+    """
+    Convert text to speech using pyttsx3 (local, no API key required).
+
+    This is the v1 TTS provider. It runs entirely offline and requires
+    no external dependency or API key.
+
+    Args:
+        text: The question or text string to be spoken aloud.
+
+    Returns:
+        True if speech synthesis succeeded, False otherwise.
+
+    Upgrade path:
+        For v2, replace pyttsx3 with a cloud TTS provider such as:
+        - Google Cloud Text-to-Speech (natural voices, SSML support)
+        - AWS Polly (low latency, neural voices)
+        - ElevenLabs (most natural, emotion-aware)
+        See docs/tts-upgrade-path.md for full trade-off comparison.
+    """
+    if not HAS_TTS:
+        logger.warning("TTS unavailable — pyttsx3 not installed")
+        return False
+
+    if not text or not text.strip():
+        logger.warning("speak_text() called with empty text — skipping")
+        return False
+
+    try:
+        _tts_engine.say(text)
+        _tts_engine.runAndWait()
+        logger.info("TTS spoke successfully: %.50s...", text)
+        return True
+    except Exception as exc:
+        logger.warning("TTS speak_text() failed: %s", exc)
+        return False
+
+
+# ----------------------------------------------
+# TTS (Text-to-Speech) — pyttsx3 local provider
+# ----------------------------------------------
+
+
+def speak_text_to_file(text: str, output_path: str) -> bool:
+    """
+    Save synthesized speech to an audio file (.mp3 or .wav).
+
+    Useful when the frontend needs to play audio from a URL
+    instead of triggering local system speakers.
+
+    Args:
+        text: Text to synthesize.
+        output_path: File path to save audio (e.g. 'output.mp3')
+
+    Returns:
+        True if file was saved successfully, False otherwise.
+    """
+    if not HAS_TTS:
+        logger.warning("TTS unavailable — pyttsx3 not installed")
+        return False
+
+    if not text or not text.strip():
+        logger.warning("speak_text_to_file() called with empty text — skipping")
+        return False
+
+    try:
+        _tts_engine.save_to_file(text, output_path)
+        _tts_engine.runAndWait()
+        logger.info("TTS audio saved to: %s", output_path)
+        return True
+    except Exception as exc:
+        logger.warning("TTS save_to_file() failed: %s", exc)
+        return False

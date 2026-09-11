@@ -2,7 +2,7 @@
  * CSV and PDF export utilities
  */
 
-import { jsPDF } from "jspdf";
+const { jsPDF } = await import("jspdf");
 
 /**
  * Convert array of objects to CSV string

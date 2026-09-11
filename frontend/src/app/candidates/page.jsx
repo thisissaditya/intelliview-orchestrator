@@ -253,24 +253,7 @@ export default function CandidatesPage() {
     setImportErrors([]);
 
     try {
-      const res = await fetch("/candidates/bulk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidates: validCandidates }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        // FastAPI returns { detail: string | [{loc, msg, type}, ...] }
-        let errMsg = `Import failed (status ${res.status}).`;
-        if (typeof data?.detail === "string") {
-          errMsg = data.detail;
-        } else if (Array.isArray(data?.detail)) {
-          errMsg = data.detail.map((d) => d.msg).filter(Boolean).join("; ") || errMsg;
-        }
-        throw new Error(errMsg);
-      }
+      const data = await endpoints.bulkCreateCandidates({ candidates: validCandidates });
 
       const importedCount = data?.imported ?? validCandidates.length;
       const failedRows = data?.errors ?? [];

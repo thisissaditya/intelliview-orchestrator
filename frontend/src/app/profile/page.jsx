@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { endpoints } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { ErrorState } from "@/components/States";
 
 export default function ProfilePage() {
   const searchParams = useSearchParams();
@@ -28,15 +29,7 @@ export default function ProfilePage() {
     [candidateId]
   );
 
-  useEffect(() => {
-    if (!candidateId) {
-      setError("Candidate ID is required to load the profile.");
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadProfile = async () => {
+  const loadProfile = async () => {
       setLoading(true);
       setError("");
 
@@ -69,6 +62,16 @@ export default function ProfilePage() {
       }
     };
 
+
+  useEffect(() => {
+    if (!candidateId) {
+      setError("Candidate ID is required to load the profile.");
+      return;
+    }
+
+    let cancelled = false;
+
+    
     loadProfile();
 
     return () => {
@@ -253,10 +256,13 @@ export default function ProfilePage() {
             </div>
 
             {error && (
-              <div className="rounded-md border border-rose-900/40 bg-rose-950/20 p-3 text-sm text-rose-400">
-                {error}
-              </div>
+                <ErrorState
+                    error={error}
+                    onRetry={loadProfile}
+                />
             )}
+
+            
 
             <div className="flex justify-end">
               <Button type="submit" disabled={saving || loading}>

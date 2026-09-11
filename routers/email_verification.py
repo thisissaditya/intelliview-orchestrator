@@ -54,6 +54,8 @@ async def verify_email(
 
         # Mark candidate as verified and clear token fields
         candidate.email_verified = True
+        candidate.is_verified = True
+        candidate.status = "verified"
         candidate.verification_token = None
         candidate.verification_token_expires_at = None
 

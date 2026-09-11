@@ -10,6 +10,20 @@ Responsibilities:
 
 All weights and thresholds are configurable via RISK_CONFIG, a single
 source of truth for every numeric constant in the scoring pipeline.
+
+Anti-cheat integrity_score schema (D2)
+---------------------------------------
+The externally consumed ``integrity_score`` is an integer from 0 to 100,
+where 100 means no suspicious activity was observed and 0 means the maximum
+combined penalty was observed. The signal budget is:
+
+* tab-switch: 20% (maximum 20-point penalty)
+* gaze/face: 30% (maximum 30-point penalty)
+* risk: 50% (maximum 50-point penalty)
+
+The score bands are defined in ``docs/integrity-score-schema.md`` and are
+the contract for backend responses and frontend interpretation. This section
+documents the schema only; it does not implement the fusion algorithm.
 """
 
 import logging
@@ -22,9 +36,9 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Single-source risk configuration — all weights & thresholds here.
-#   RISK_VIDEO_WEIGHT=0.5 RISK_LOW_RISK_THRESHOLD=0.25
-# -----------------------------------------# Override via environment variables (prefix RISK_), e.g.
-# ----------------------------------
+# Override via environment variables (prefix RISK_), e.g.
+#   RISK_VIDEO_WEIGHT=0.4 RISK_LOW_RISK_THRESHOLD=0.3
+# ---------------------------------------------------------------------------
 
 
 class RiskScoringEngine:
@@ -155,6 +169,40 @@ class RiskScoringEngine:
         return min(risk_score, 1.0)
 
     @classmethod
+    def count_video_flags(cls, video_result: dict[str, Any] | None) -> int:
+        """Count discrete cheat-signal flags set in a video analysis result.
+
+        This mirrors the same boolean checks used in ``calculate_video_risk``,
+        but returns a plain integer count rather than a weighted score. It is
+        used as the ``cv_flags`` input to the integrity-score fusion (see
+        ``workers/integrity_score.py``), which is surfaced live through the
+        session-status API as new video signal data comes in.
+        """
+        if not video_result:
+            return 0
+
+        flags = 0
+
+        if video_result.get("multiple_persons", {}).get("multiple_persons_detected"):
+            flags += 1
+
+        if video_result.get("phone_detected", {}).get("phone_detected"):
+            flags += 1
+
+        if video_result.get("head_movement_suspicious", {}).get(
+            "suspicious_movement_detected"
+        ):
+            flags += 1
+
+        # Default to True (no flag) when face-detection data simply hasn't
+        # arrived yet for this frame/stage, so a partially-populated
+        # mid-session result doesn't get penalized for missing data.
+        if not video_result.get("face_detected", {}).get("faces_found", True):
+            flags += 1
+
+        return flags
+
+    @classmethod
     def calculate_final_risk(
         cls, video_risk: float, audio_risk: float, evaluation_risk: float
     ) -> float:
@@ -166,6 +214,105 @@ class RiskScoringEngine:
             + eval_weight * evaluation_risk
         )
         return round(min(max(final_risk, 0.0), 1.0), 3)
+
+        # ------------------------------------------------------------------
+
+    # D3: Integrity score fusion
+    #
+    # Combines the D2-defined anti-cheat signals (tab_switching,
+    # browser_activity, audio_interruptions, multiple_persons,
+    # candidate_absence, gaze_deviation, background_noise) into a single
+    # 0-100 integrity_score using a weighted average. Weights come from
+    # D2's RiskWeights schema (orchestrator/models.py), fetched per job
+    # position via orchestrator.store.get_weights_for_position(), and are
+    # normalized at scoring time so they do not need to sum to 1.
+    #
+    # Signal collection itself (tab-switch tracking, gaze/face detection,
+    # etc.) is out of scope here -- this function only fuses whatever
+    # values it is given.
+    # ------------------------------------------------------------------
+
+    # D2 signal names this fusion function understands, in a fixed order.
+    INTEGRITY_SIGNAL_NAMES: tuple[str, ...] = (
+        "tab_switching",
+        "browser_activity",
+        "audio_interruptions",
+        "multiple_persons",
+        "candidate_absence",
+        "gaze_deviation",
+        "background_noise",
+    )
+
+    @classmethod
+    def calculate_integrity_score(
+        cls,
+        signals: dict,
+        job_position: str | None = None,
+    ) -> float:
+        """
+        Fuse D2 anti-cheat signals into a single integrity_score (0-100).
+
+        Args:
+            signals: mapping of D2 signal names (see
+                INTEGRITY_SIGNAL_NAMES) to a 0-100 "risk level" for that
+                signal, where higher means more suspicious/riskier
+                (e.g. {"tab_switching": 20.0, "gaze_deviation": 5.0}).
+                A signal may be omitted or set to None if that source is
+                temporarily unavailable (partial data) -- it is simply
+                excluded from the average rather than causing an error.
+            job_position: optional job position name. When given, D2's
+                per-position weights are looked up via
+                orchestrator.store.get_weights_for_position(); otherwise
+                the D2 default weights (all 1.0) are used.
+
+        Returns:
+            A float in [0, 100], rounded to 2 decimals. 100 means no
+            risk detected across the available signals; 0 means maximum
+            combined risk. If every signal is missing/unavailable, a
+            neutral 100.0 ("no risk observed") is returned rather than
+            raising, since fusion should never crash on missing data.
+        """
+        # Local import avoids a hard/circular dependency between the
+        # workers package and the orchestrator package at module load
+        # time; only needed when a job_position lookup is requested.
+        from orchestrator.models import RiskWeights
+        from orchestrator.store import get_weights_for_position
+
+        weights = (
+            get_weights_for_position(job_position) if job_position else RiskWeights()
+        )
+        weight_by_signal = {
+            name: getattr(weights, name) for name in cls.INTEGRITY_SIGNAL_NAMES
+        }
+
+        weighted_risk_sum = 0.0
+        total_weight = 0.0
+
+        for name in cls.INTEGRITY_SIGNAL_NAMES:
+            raw_value = signals.get(name) if signals else None
+            if raw_value is None:
+                # Missing/partial signal: skip it gracefully instead of
+                # crashing or treating it as zero risk.
+                continue
+            try:
+                risk_value = float(raw_value)
+            except (TypeError, ValueError):
+                # Defensively skip malformed values the same way as
+                # missing ones, rather than raising.
+                continue
+            risk_value = min(max(risk_value, 0.0), 100.0)
+
+            weight = weight_by_signal[name]
+            weighted_risk_sum += weight * risk_value
+            total_weight += weight
+
+        if total_weight <= 0:
+            # No usable signals at all -> neutral default, never crash.
+            return 100.0
+
+        avg_risk = weighted_risk_sum / total_weight
+        integrity_score = 100.0 - avg_risk
+        return round(min(max(integrity_score, 0.0), 100.0), 2)
 
     @staticmethod
     def _apply_critical_rule_overrides(

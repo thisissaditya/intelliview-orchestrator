@@ -48,7 +48,7 @@ def create_admin_routes(state_sync, load_balancer) -> APIRouter:
 
         return {"access_token": access_token, "token_type": "bearer"}
 
-    @router.get("/admin/fairness-audit", dependencies=[Depends(require_token)])
+    @router.get("/admin/fairness-audit", dependencies=[Depends(require_role("admin"))])
     async def get_fairness_audit_report():
         """Return a lightweight fairness audit report for recent scoring patterns.
 

@@ -7,7 +7,7 @@ import { StatusBadge, Badge } from "@/components/Badge";
 import { Shimmer } from "@/components/Shimmer";
 import { useAppStore } from "@/lib/store";
 import { formatDate, riskColor, formatRelative } from "@/lib/utils";
-import { Activity, Calendar, Cpu, Hash, RefreshCw, User, Film, Mic, MessageSquare, Clock, FileDown } from "lucide-react";
+import { Activity, Calendar, Cpu, Hash, RefreshCw, User, Film, Mic, MessageSquare, Clock, FileDown, ShieldCheck } from "lucide-react";
 import useSWR from "swr";
 import { MomentTimeline } from "@/hooks/useMomentTracking";
 import { generateSessionPDF, requestBackendPDF } from "@/lib/export";
@@ -19,12 +19,12 @@ function SessionDetailImpl({ sessionId, onClose }) {
   const [exportingPDF, setExportingPDF] = useState(false);
   
   const { data, error, isLoading, mutate } = useSWR(
-    open && token ? `/session-status/${sessionId}` : null,
+    open ? `/session-status/${sessionId}` : null,
     { refreshInterval: 2000 },
   );
 
   const { data: momentsData } = useSWR(
-    open && token ? `/moments/${sessionId}` : null,
+    open ? `/moments/${sessionId}` : null,
     { refreshInterval: 5000 },
   );
 
@@ -117,6 +117,19 @@ function SessionDetailImpl({ sessionId, onClose }) {
                     )
                   }
                   icon={Hash}
+                />
+                <Field
+                  label="Integrity score"
+                  value={
+                    data.integrity_score != null ? (
+                      <Badge variant={riskColor((100 - data.integrity_score) / 100)}>
+                        {data.integrity_score}/100
+                      </Badge>
+                    ) : (
+                      "—"
+                    )
+                  }
+                  icon={ShieldCheck}
                 />
               </div>
 

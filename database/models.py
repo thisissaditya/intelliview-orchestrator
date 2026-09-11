@@ -202,7 +202,9 @@ class Candidate(Base):
 
     # Verification features
     is_verified = Column(Boolean, default=False, nullable=False)
-    verification_token = Column(String(50), nullable=True)
+    email_verified = Column(Boolean, default=False, nullable=False)
+    verification_token = Column(String(255), nullable=True)
+    verification_token_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     # Streak & Badges features
     practice_streak = Column(Integer, default=0, nullable=False)
@@ -219,6 +221,9 @@ class Candidate(Base):
         nullable=False,
         default=utcnow,
         onupdate=utcnow,
+    )
+    deleted_at = Column(
+        DateTime(timezone=True), nullable=True, index=True, default=None
     )
 
     interview_sessions = relationship(

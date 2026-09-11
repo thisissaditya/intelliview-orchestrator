@@ -64,8 +64,8 @@ class Settings(BaseSettings):
     worker_id: str = "worker-1"
 
     # --- API / Security ---
-    api_token: str = "dev-token-change-me"
-    jwt_secret_key: str = "change-this-to-a-long-random-secret-key"
+    api_token: str = ""
+    jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 7
@@ -159,11 +159,12 @@ class Settings(BaseSettings):
         if not self.api_token.strip():
             errors.append("API_TOKEN is required.")
         elif self.api_token == "dev-token-change-me":
-            if self.environment.lower() == "production":
-                raise RuntimeError(
-                    "CRITICAL SECURITY ERROR: Default API_TOKEN detected! "
-                    "You MUST set a secure API_TOKEN environment variable in production."
-                )
+            errors.append("Default API_TOKEN is not allowed.")
+
+        if not self.jwt_secret_key.strip():
+            errors.append("JWT_SECRET_KEY is required.")
+        elif self.jwt_secret_key == "change-this-to-a-long-random-secret-key":
+            errors.append("Default JWT_SECRET_KEY is not allowed.")
 
         if self.worker_concurrency <= 0:
             errors.append("WORKER_CONCURRENCY must be greater than 0.")

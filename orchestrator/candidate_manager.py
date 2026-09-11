@@ -42,6 +42,8 @@ class CandidateManager:
         token = "".join(random.choices("0123456789", k=6))
         db = SessionLocal()
 
+        is_verified_bool = bool(status and status.lower() == "verified")
+
         try:
             candidate = Candidate(
                 candidate_id=candidate_id,
@@ -52,8 +54,9 @@ class CandidateManager:
                 interview_history=[],
                 avg_score=None,
                 total_interviews=0,
-                is_verified=False,
-                verification_token=token,
+                is_verified=is_verified_bool,
+                email_verified=is_verified_bool,
+                verification_token=token if not is_verified_bool else None,
                 practice_streak=0,
                 last_practice_date=None,
                 badges=[],
@@ -75,8 +78,9 @@ class CandidateManager:
                 "interview_history": [],
                 "avg_score": None,
                 "total_interviews": 0,
-                "is_verified": False,
-                "verification_token": token,
+                "is_verified": is_verified_bool,
+                "email_verified": is_verified_bool,
+                "verification_token": token if not is_verified_bool else None,
                 "practice_streak": 0,
                 "last_practice_date": None,
                 "badges": [],
@@ -413,6 +417,7 @@ class CandidateManager:
             if not c or c.verification_token != token.strip():
                 return False
             c.is_verified = True
+            c.email_verified = True
             c.status = "verified"
             c.verification_token = None
             db.commit()

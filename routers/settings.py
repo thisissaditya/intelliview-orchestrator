@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from database.db import get_db
 from database.models.system_settings import SystemSettings
+from orchestrator.security import require_role
 from workers.risk_engine import RiskScoringEngine
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,10 @@ def create_settings_routes() -> APIRouter:
 
     router = APIRouter()
 
-    @router.get("/api/admin/risk-config")
+    @router.get(
+        "/api/admin/risk-config",
+        dependencies=[Depends(require_role("admin"))],
+    )
     async def get_risk_config():
         """Return the current live risk engine configuration."""
         pipeline_weights = RiskScoringEngine.get_pipeline_weights()

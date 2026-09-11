@@ -18,6 +18,7 @@ with (
 
 from database.db import Base, get_db
 from database.models import Candidate, InterviewSchedule
+from orchestrator.security import get_current_user
 from routers.schedule import create_schedule_routes
 
 client = TestClient(app)
@@ -107,8 +108,6 @@ def test_admin_audit_events_contain_actor_action_and_timestamp():
 
 
 def test_sync_to_database_audit_uses_authenticated_actor():
-    from orchestrator.security import get_current_user
-
     app.dependency_overrides[get_current_user] = lambda: {
         "role": "admin",
         "user_id": "admin-123",
@@ -137,46 +136,129 @@ def test_sync_to_database_audit_uses_authenticated_actor():
         app.dependency_overrides.pop(get_current_user, None)
 
 
-def test_risk_config_returns_live_values(monkeypatch):
-    monkeypatch.setenv("RISK_VIDEO_WEIGHT", "0.5")
-    monkeypatch.setenv("RISK_AUDIO_WEIGHT", "0.25")
-    monkeypatch.setenv("RISK_EVALUATION_WEIGHT", "0.25")
+# ---------------------------------------------------------------------------
+# Issue #52 - Admin authentication and authorization tests
+# ---------------------------------------------------------------------------
 
-    monkeypatch.setenv("RISK_LOW_RISK_THRESHOLD", "0.2")
-    monkeypatch.setenv("RISK_MEDIUM_RISK_THRESHOLD", "0.5")
-    monkeypatch.setenv("RISK_HIGH_RISK_THRESHOLD", "0.75")
+
+def test_fairness_audit_requires_authentication():
+    app.dependency_overrides.pop(get_current_user, None)
+
+    response = client.get("/admin/fairness-audit")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or missing authentication"
+
+
+def test_fairness_audit_requires_admin_role():
+    app.dependency_overrides[get_current_user] = lambda: {
+        "role": "interviewer",
+        "user_id": "user-123",
+        "email": "user@example.com",
+    }
+
+    try:
+        response = client.get("/admin/fairness-audit")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Access denied"
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_fairness_audit_allows_admin():
+    app.dependency_overrides[get_current_user] = lambda: {
+        "role": "admin",
+        "user_id": "admin-123",
+        "email": "admin@example.com",
+    }
+
+    try:
+        with patch("orchestrator.main.BiasAuditor") as mock_bias_auditor:
+            mock_bias_auditor.return_value.analyze_scoring_consistency.return_value = {}
+
+            response = client.get("/admin/fairness-audit")
+
+        assert response.status_code == 200
+        assert response.json() == {}
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_risk_config_requires_authentication():
+    app.dependency_overrides.pop(get_current_user, None)
 
     response = client.get("/api/admin/risk-config")
 
-    assert response.status_code == 200
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or missing authentication"
 
-    data = response.json()
 
-    assert data["pipeline_weights"] == {
-        "video": 0.5,
-        "audio": 0.25,
-        "evaluation": 0.25,
+def test_risk_config_requires_admin_role():
+    app.dependency_overrides[get_current_user] = lambda: {
+        "role": "interviewer",
+        "user_id": "user-123",
+        "email": "user@example.com",
     }
 
-    assert data["thresholds"] == {
-        "low": 0.2,
-        "medium": 0.5,
-        "high": 0.75,
+    try:
+        response = client.get("/api/admin/risk-config")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Access denied"
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_risk_config_returns_live_values(monkeypatch):
+    app.dependency_overrides[get_current_user] = lambda: {
+        "role": "admin",
+        "user_id": "admin-123",
+        "email": "admin@example.com",
     }
 
-    assert "multiple_persons" in data["video_factors"]
-    assert "phone_detected" in data["video_factors"]
-    assert "suspicious_head_movement" in data["video_factors"]
-    assert "no_face_detected" in data["video_factors"]
+    try:
+        monkeypatch.setenv("RISK_VIDEO_WEIGHT", "0.5")
+        monkeypatch.setenv("RISK_AUDIO_WEIGHT", "0.25")
+        monkeypatch.setenv("RISK_EVALUATION_WEIGHT", "0.25")
 
-    assert "background_voices" in data["audio_factors"]
-    assert "suspicious_pattern" in data["audio_factors"]
-    assert "no_transcription" in data["audio_factors"]
+        monkeypatch.setenv("RISK_LOW_RISK_THRESHOLD", "0.2")
+        monkeypatch.setenv("RISK_MEDIUM_RISK_THRESHOLD", "0.5")
+        monkeypatch.setenv("RISK_HIGH_RISK_THRESHOLD", "0.75")
 
-    assert "low_quality_answers" in data["evaluation_factors"]
-    assert "low_accuracy" in data["evaluation_factors"]
-    assert "poor_communication" in data["evaluation_factors"]
-    assert "hallucination" in data["evaluation_factors"]
+        response = client.get("/api/admin/risk-config")
+
+        assert response.status_code == 200
+
+        data = response.json()
+
+        assert data["pipeline_weights"] == {
+            "video": 0.5,
+            "audio": 0.25,
+            "evaluation": 0.25,
+        }
+
+        assert data["thresholds"] == {
+            "low": 0.2,
+            "medium": 0.5,
+            "high": 0.75,
+        }
+
+        assert "multiple_persons" in data["video_factors"]
+        assert "phone_detected" in data["video_factors"]
+        assert "suspicious_head_movement" in data["video_factors"]
+        assert "no_face_detected" in data["video_factors"]
+
+        assert "background_voices" in data["audio_factors"]
+        assert "suspicious_pattern" in data["audio_factors"]
+        assert "no_transcription" in data["audio_factors"]
+
+        assert "low_quality_answers" in data["evaluation_factors"]
+        assert "low_accuracy" in data["evaluation_factors"]
+        assert "poor_communication" in data["evaluation_factors"]
+        assert "hallucination" in data["evaluation_factors"]
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
 
 
 @patch("orchestrator.http_cache.invalidate")

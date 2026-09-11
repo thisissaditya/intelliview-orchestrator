@@ -21,15 +21,15 @@ import {
 import Card from "@/components/Card";
 import Button from "@/components/Button";
 import { Badge } from "@/components/Badge";
-import { Skeleton } from "@/components/States";
+import { Skeleton, ErrorState } from "@/components/States";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui";
 import AddToCalendarButton from "@/components/AddToCalendarButton";
 
 const fetcher = (url) => fetch(url).then((res) => res.json());
 
 export default function SchedulePage() {
-  const { data: candidateData, isLoading: loadingCandidates } = useSWR("/candidates", fetcher);
-  const { data: scheduleData, mutate: refreshSchedules, isLoading: loadingSchedules } = useSWR("/api/schedule", fetcher);
+  const { data: candidateData,  error: candidateError,  mutate: refreshCandidates, isLoading: loadingCandidates } = useSWR("/candidates", fetcher);
+  const { data: scheduleData,  error: scheduleError, mutate: refreshSchedules, isLoading: loadingSchedules } = useSWR("/api/schedule", fetcher);
 
   // Form State
   const [selectedCandidateId, setSelectedCandidateId] = useState("");
@@ -167,6 +167,24 @@ export default function SchedulePage() {
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
   ];
+
+  if (candidateError) {
+  return (
+    <ErrorState
+      error={candidateError}
+      onRetry={refreshCandidates}
+    />
+  );
+}
+
+if (scheduleError) {
+  return (
+    <ErrorState
+      error={scheduleError}
+      onRetry={refreshSchedules}
+    />
+  );
+}
 
   return (
     <div className="space-y-6 animate-fade-in p-2 md:p-6 text-zinc-100">

@@ -292,3 +292,90 @@ class QuestionBank:
 
 
 question_bank = QuestionBank()
+
+
+class RetrievalProvider:
+    """Adapter interface for personalized question retrieval."""
+
+    def retrieve(
+        self,
+        candidate_id: str,
+        resume_text: str,
+        jd_text: str,
+        count: int = 5,
+    ) -> list[Any]:
+        raise NotImplementedError
+
+
+class DefaultRetrievalProvider(RetrievalProvider):
+    """Adapter around the existing retrieval index."""
+
+    def retrieve(
+        self,
+        candidate_id: str,
+        resume_text: str,
+        jd_text: str,
+        count: int = 5,
+    ) -> list[Any]:
+        from retrieval.index import retrieve
+
+        query = (
+            f"Candidate: {candidate_id}\n"
+            f"Resume:\n{resume_text}\n"
+            f"Job Description:\n{jd_text}"
+        )
+
+        return retrieve(query, top_k=count)
+
+
+_retrieval_provider: RetrievalProvider | None = None
+
+
+def set_retrieval_provider(provider: RetrievalProvider | None) -> None:
+    """Configure the retrieval provider used for personalized questions."""
+    global _retrieval_provider
+    _retrieval_provider = provider
+
+
+def _legacy_questions(count: int) -> list[dict[str, Any]]:
+    """Return questions from the legacy database question bank."""
+    try:
+        return question_bank.get_questions(limit=count)
+    except Exception as exc:
+        logger.warning("Legacy question bank unavailable: %s", exc)
+        return []
+
+
+def get_personalized_questions(
+    candidate_id: str,
+    resume_text: str,
+    jd_text: str,
+    count: int = 5,
+) -> list[Any]:
+    """
+    Retrieve candidate-specific interview questions.
+
+    Retrieval failures are intentionally isolated so an interview can
+    continue using the legacy question bank.
+    """
+    if count <= 0:
+        return []
+
+    provider = _retrieval_provider or DefaultRetrievalProvider()
+
+    try:
+        results = provider.retrieve(
+            candidate_id=candidate_id,
+            resume_text=resume_text,
+            jd_text=jd_text,
+            count=count,
+        )
+
+        if results:
+            return results[:count]
+
+        logger.warning("Retrieval returned no questions; using legacy bank.")
+    except Exception as exc:
+        logger.warning("Personalized retrieval failed: %s", exc)
+
+    return _legacy_questions(count)

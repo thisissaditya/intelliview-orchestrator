@@ -14,14 +14,13 @@ Integrates:
 - Worker Registry for node tracking
 - Task Queue integration with Celery
 """
-
+import base64
 import io
 import json
 import logging
 import os
 import re
 import time
-import time as _time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -91,6 +90,7 @@ from orchestrator.state_sync import StateSynchronizer
 from orchestrator.worker_registry import WorkerRegistry
 from routers.ab_testing import create_ab_testing_routes
 from routers.candidates import create_candidate_routes
+from routers.integrity import _calculate_session_integrity_score, get_tab_switch_count
 from routers.integrity import router as integrity_router
 from routers.practice_sessions import router as practice_sessions_router
 from routers.questions import create_question_routes
@@ -104,13 +104,17 @@ from routers.session_control import (
 )
 from routers.sessions import (  # noqa: F401 (re-exported for tests)
     StartInterviewRequest,
+    _compute_live_integrity_score,
     create_session_routes,
 )
 from routers.settings import create_settings_routes
 from routers.templates import create_template_routes
 from routers.workers import create_worker_routes
 from workers.ab_testing_framework import ABTestingFramework
+from workers.ai_client import text_to_speech
 from workers.bias_auditor import BiasAuditor
+from workers.integrity_score import IntegrityScorer
+from workers.risk_engine import RiskScoringEngine
 
 # Configure logging after imports so startup messages are structured.
 configure_logging()
@@ -291,11 +295,11 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         request_id = incoming if _VALID_ID_RE.match(incoming) else uuid4().hex
         request.state.request_id = request_id
         trace.get_current_span().set_attribute("request_id", request_id)
-        start = _time.perf_counter()
+        start = time.perf_counter()
         try:
             response = await call_next(request)
         except Exception:
-            elapsed_ms = (_time.perf_counter() - start) * 1000
+            elapsed_ms = (time.perf_counter() - start) * 1000
             log_event(
                 logger,
                 logging.ERROR,
@@ -306,7 +310,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             )
             logger.debug("traceback", exc_info=True)
             raise
-        elapsed_ms = (_time.perf_counter() - start) * 1000
+        elapsed_ms = (time.perf_counter() - start) * 1000
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Response-Time-ms"] = f"{elapsed_ms:.1f}"
         if request.url.path != "/health":
@@ -470,6 +474,7 @@ class SessionStatusResponse(BaseModel):
     status: str
     candidate_id: str
     risk_score: float | None = None
+    integrity_score: int | None = None
     assigned_node: str | None = None
     start_time: str | None = None
     end_time: str | None = None
@@ -560,6 +565,7 @@ class AskQuestionResponse(BaseModel):
     text: str
     category: str
     difficulty: str
+    audio_base64: str | None = None
 
 
 class SubmitAnswerRequest(BaseModel):
@@ -649,7 +655,10 @@ async def get_dependency_statuses():
     return await health_monitor._check_all_dependencies()
 
 
-@app.get("/admin/fairness-audit", dependencies=[Depends(require_token)])
+@app.get(
+    "/admin/fairness-audit",
+    dependencies=[Depends(require_role("admin"))],
+)
 async def get_fairness_audit_report():
     """Return a lightweight fairness audit report for recent scoring patterns.
 
@@ -872,6 +881,29 @@ async def start_interview(
         logger.error(f"Error starting interview session: {e!s}")
         raise HTTPException(status_code=500, detail=f"Error starting interview: {e!s}")
 
+    """Fuse anti-cheat signals into a single 0-100 integrity score.
+
+    Reads whatever signals are currently available for the session so the
+    score reflects the live state of a session in progress, not just its
+    final result:
+    - tab-switch events ingested via POST /integrity/events
+    - video cheat-signal flags, as soon as the video pipeline stage
+      completes (multiple_persons, phone_detected, etc.)
+    - the final pipeline risk score, once the interview has completed
+
+    Any signal that hasn't arrived yet is simply omitted rather than
+    penalized (see IntegrityScorer.calculate_integrity_score).
+    """
+    video_result = session_data.get("video_analysis") or session_data.get(
+        "video_result"
+    )
+
+    return IntegrityScorer.calculate_integrity_score(
+        tab_switches=get_tab_switch_count(session_id),
+        cv_flags=RiskScoringEngine.count_video_flags(video_result),
+        risk_score=session_data.get("risk_score"),
+    )
+
 
 @app.get("/session-status/{session_id}", response_model=SessionStatusResponse)
 async def get_session_status(
@@ -884,6 +916,8 @@ async def get_session_status(
     Retrieves real-time session information including:
     - Current status (CREATED, QUEUED, PROCESSING, COMPLETED, FAILED)
     - Risk score if available
+    - Fused anti-cheat integrity score (0-100), updated live as new
+      signal data (tab switches, video flags, risk score) comes in
     - Processing node information
     - Timestamps
 
@@ -910,6 +944,7 @@ async def get_session_status(
             status=session_data.get("status"),
             candidate_id=session_data.get("candidate_id"),
             risk_score=session_data.get("risk_score"),
+            integrity_score=_compute_live_integrity_score(session_id, session_data),
             assigned_node=session_data.get("assigned_node"),
             start_time=session_data.get("start_time"),
             end_time=session_data.get("end_time"),
@@ -1472,6 +1507,7 @@ async def list_interviews(
                 "candidate_id": r.candidate_id,
                 "status": r.status,
                 "risk_score": r.risk_score,
+                "integrity_score": _calculate_session_integrity_score(r.session_id),
                 "assigned_node": r.assigned_node,
                 "start_time": r.start_time.isoformat() if r.start_time else None,
                 "end_time": r.end_time.isoformat() if r.end_time else None,
@@ -1690,12 +1726,18 @@ async def ask_question(
         if not question:
             raise HTTPException(status_code=404, detail="No more questions available")
 
+        audio_bytes = text_to_speech(question["text"])
+        audio_base64 = (
+            base64.b64encode(audio_bytes).decode("utf-8") if audio_bytes else None
+        )
+
         return AskQuestionResponse(
             session_id=request.session_id,
             question_id=question["question_id"],
             text=question["text"],
             category=question["category"],
             difficulty=question["difficulty"],
+            audio_base64=audio_base64,
         )
     except HTTPException:
         raise

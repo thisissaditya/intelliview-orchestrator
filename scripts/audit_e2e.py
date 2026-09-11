@@ -9,6 +9,7 @@ Run while the stack is up:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import urllib.error
@@ -17,7 +18,7 @@ from typing import Any
 
 API = "http://localhost:8000"
 WEB = "http://localhost:3000"
-TOKEN = "dev-token-change-me"
+TOKEN = "api123"
 
 PASS = "\033[32mPASS\033[0m"
 FAIL = "\033[31mFAIL\033[0m"
@@ -35,20 +36,26 @@ def request(
     data = None if body is None else json.dumps(body).encode("utf-8")
     h = {"Content-Type": "application/json", **(headers or {})}
     req = urllib.request.Request(url, data=data, method=method, headers=h)
+
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read()
+
             try:
                 payload = json.loads(raw) if raw else None
             except json.JSONDecodeError:
                 payload = raw.decode("utf-8", errors="replace")
+
             return r.status, dict(r.headers), payload
+
     except urllib.error.HTTPError as e:
         raw = e.read()
+
         try:
             payload = json.loads(raw) if raw else None
         except json.JSONDecodeError:
             payload = raw.decode("utf-8", errors="replace")
+
         return e.code, dict(e.headers), payload
 
 
@@ -67,6 +74,7 @@ def section(title: str) -> None:
 
 def backend() -> None:
     section("Backend — read endpoints")
+
     s, _, _ = request("GET", f"{API}/health")
     check("GET /health", s == 200, f"HTTP {s}")
 
@@ -96,6 +104,7 @@ def backend() -> None:
         check(f"GET {path}", s == 200, f"HTTP {s}")
 
     section("Backend — auth gates (no token)")
+
     for method, path in [
         ("POST", "/start-interview"),
         ("POST", "/switch-strategy?strategy=ROUND_ROBIN"),
@@ -111,6 +120,7 @@ def backend() -> None:
         check(f"{method} {path} unauth", s == 401, f"HTTP {s}")
 
     section("Backend — auth gates (with token)")
+
     hdr = {"X-API-Token": TOKEN}
 
     s, _, body = request(
@@ -119,13 +129,23 @@ def backend() -> None:
         headers=hdr,
         body={"candidate_id": "cand-audit", "priority": "medium"},
     )
+
     sid = body["session_id"] if s == 200 and isinstance(body, dict) else None
-    check("POST /start-interview (auth)", s == 200, f"HTTP {s}, sid={sid}")
+
+    check(
+        "POST /start-interview (auth)",
+        s == 200,
+        f"HTTP {s}, sid={sid}",
+    )
 
     if sid:
         # Wait for processing
         for _ in range(10):
-            s, _, body = request("GET", f"{API}/session-status/{sid}")
+            s, _, body = request(
+                "GET",
+                f"{API}/session-status/{sid}",
+            )
+
             if (
                 s == 200
                 and isinstance(body, dict)
@@ -136,7 +156,9 @@ def backend() -> None:
                 )
             ):
                 break
+
             time.sleep(1)
+
         check(
             "GET /session-status/{id}",
             s == 200,
@@ -144,19 +166,31 @@ def backend() -> None:
         )
 
     s, _, _ = request(
-        "POST", f"{API}/switch-strategy?strategy=QUEUE_BASED", headers=hdr
+        "POST",
+        f"{API}/switch-strategy?strategy=QUEUE_BASED",
+        headers=hdr,
     )
     check("POST /switch-strategy", s == 200, f"HTTP {s}")
 
     s, _, _ = request(
-        "POST", f"{API}/switch-strategy?strategy=LEAST_LOADED", headers=hdr
+        "POST",
+        f"{API}/switch-strategy?strategy=LEAST_LOADED",
+        headers=hdr,
     )
     check("POST /switch-strategy reset", s == 200, f"HTTP {s}")
 
-    s, _, _ = request("POST", f"{API}/detect-failures", headers=hdr)
+    s, _, _ = request(
+        "POST",
+        f"{API}/detect-failures",
+        headers=hdr,
+    )
     check("POST /detect-failures", s == 200, f"HTTP {s}")
 
-    s, _, _ = request("POST", f"{API}/sync-to-database", headers=hdr)
+    s, _, _ = request(
+        "POST",
+        f"{API}/sync-to-database",
+        headers=hdr,
+    )
     check("POST /sync-to-database", s == 200, f"HTTP {s}")
 
     s, _, _ = request(
@@ -175,46 +209,87 @@ def backend() -> None:
     )
     check("POST /worker/heartbeat", s == 200, f"HTTP {s}")
 
-    s, _, _ = request("DELETE", f"{API}/deregister-worker/audit-w", headers=hdr)
+    s, _, _ = request(
+        "DELETE",
+        f"{API}/deregister-worker/audit-w",
+        headers=hdr,
+    )
     check("DELETE /deregister-worker", s == 200, f"HTTP {s}")
 
     section("Backend — validation")
+
     # Missing candidate_id → 422
     s, _, _ = request(
-        "POST", f"{API}/start-interview", headers=hdr, body={"priority": "medium"}
+        "POST",
+        f"{API}/start-interview",
+        headers=hdr,
+        body={"priority": "medium"},
     )
-    check("POST /start-interview missing candidate_id", s == 422, f"HTTP {s}")
+    check(
+        "POST /start-interview missing candidate_id",
+        s == 422,
+        f"HTTP {s}",
+    )
 
     # Invalid candidate_id (bad chars) → 422
     s, _, _ = request(
         "POST",
         f"{API}/start-interview",
         headers=hdr,
-        body={"candidate_id": "bad id with spaces!", "priority": "medium"},
+        body={
+            "candidate_id": "bad id with spaces!",
+            "priority": "medium",
+        },
     )
-    check("POST /start-interview bad candidate_id", s == 422, f"HTTP {s}")
+    check(
+        "POST /start-interview bad candidate_id",
+        s == 422,
+        f"HTTP {s}",
+    )
 
     # Invalid priority → 422
     s, _, _ = request(
         "POST",
         f"{API}/start-interview",
         headers=hdr,
-        body={"candidate_id": "cand-x", "priority": "urgent"},
+        body={
+            "candidate_id": "cand-x",
+            "priority": "urgent",
+        },
     )
-    check("POST /start-interview bad priority", s == 422, f"HTTP {s}")
+    check(
+        "POST /start-interview bad priority",
+        s == 422,
+        f"HTTP {s}",
+    )
 
     # Invalid switch strategy → 400
-    s, _, _ = request("POST", f"{API}/switch-strategy?strategy=NOPE", headers=hdr)
-    check("POST /switch-strategy invalid strategy", s == 400, f"HTTP {s}")
+    s, _, _ = request(
+        "POST",
+        f"{API}/switch-strategy?strategy=NOPE",
+        headers=hdr,
+    )
+    check(
+        "POST /switch-strategy invalid strategy",
+        s == 400,
+        f"HTTP {s}",
+    )
 
     # Invalid worker_id heartbeat → 200 (returns success but is no-op for unknown)
     s, _, _ = request(
         "POST",
         f"{API}/worker/heartbeat",
         headers=hdr,
-        body={"worker_id": "ghost", "active_tasks": 0},
+        body={
+            "worker_id": "ghost",
+            "active_tasks": 0,
+        },
     )
-    check("POST /worker/heartbeat (unknown)", s == 200, f"HTTP {s}")
+    check(
+        "POST /worker/heartbeat (unknown)",
+        s == 200,
+        f"HTTP {s}",
+    )
 
 
 # ----------------------- Monitoring router ----------------------------------
@@ -222,6 +297,7 @@ def backend() -> None:
 
 def monitoring() -> None:
     section("Monitoring router (/monitoring/*)")
+
     for path in [
         "/metrics/system",
         "/metrics/workers",
@@ -231,11 +307,25 @@ def monitoring() -> None:
         "/metrics/retries",
         "/metrics/performance",
     ]:
-        s, _, _ = request("GET", f"{API}/monitoring{path}")
-        check(f"GET /monitoring{path}", s == 200, f"HTTP {s}")
+        s, _, _ = request(
+            "GET",
+            f"{API}/monitoring{path}",
+        )
+        check(
+            f"GET /monitoring{path}",
+            s == 200,
+            f"HTTP {s}",
+        )
 
-    s, _, _ = request("GET", f"{API}/monitoring/metrics/dashboard")
-    check("GET /monitoring/metrics/dashboard", s == 200, f"HTTP {s}")
+    s, _, _ = request(
+        "GET",
+        f"{API}/monitoring/metrics/dashboard",
+    )
+    check(
+        "GET /monitoring/metrics/dashboard",
+        s == 200,
+        f"HTTP {s}",
+    )
 
 
 # ----------------------- Frontend pages --------------------------------------
@@ -243,15 +333,20 @@ def monitoring() -> None:
 
 def frontend() -> None:
     section("Frontend pages")
+
     for path in [
         "/",
         "/sessions",
         "/workers",
         "/analytics",
         "/settings",
-        "/not-a-real-page",  # 404
+        "/not-a-real-page",
     ]:
-        s, _, _ = request("GET", f"{WEB}{path}")
+        s, _, _ = request(
+            "GET",
+            f"{WEB}{path}",
+        )
+
         check(
             f"GET {path} ({'page' if path != '/not-a-real-page' else '404'})",
             s == 200 if path != "/not-a-real-page" else s == 404,
@@ -259,9 +354,20 @@ def frontend() -> None:
         )
 
     section("Frontend — static assets")
-    for path in ["/_next/static/chunks/", "/favicon.ico"]:
-        s, _, _ = request("GET", f"{WEB}{path}")
-        check(f"GET {path}", s in (200, 404), f"HTTP {s}")
+
+    for path in [
+        "/_next/static/chunks/",
+        "/favicon.ico",
+    ]:
+        s, _, _ = request(
+            "GET",
+            f"{WEB}{path}",
+        )
+        check(
+            f"GET {path}",
+            s in (200, 404),
+            f"HTTP {s}",
+        )
 
 
 # ----------------------- WebSocket ------------------------------------------
@@ -269,38 +375,87 @@ def frontend() -> None:
 
 def websocket() -> None:
     section("WebSocket /monitoring/ws/metrics")
+
     try:
         import websockets  # type: ignore
     except ImportError:
-        check("WS libs available", False, "pip install websockets")
+        check(
+            "WS libs available",
+            False,
+            "pip install websockets",
+        )
         return
 
-    import asyncio
-
     async def run() -> None:
-        url = f"ws://localhost:8000/monitoring/ws/metrics?token={TOKEN}"
+        # Authentication is sent as the first WebSocket message instead of
+        # placing the API token in the URL/query string.
+        url = "ws://localhost:8000/monitoring/ws/metrics"
+
         try:
-            async with websockets.connect(url, open_timeout=5) as ws:
+            async with websockets.connect(
+                url,
+                open_timeout=5,
+                close_timeout=2,
+            ) as ws:
+                await ws.send(
+                    json.dumps(
+                        {
+                            "type": "auth",
+                            "token": TOKEN,
+                        }
+                    )
+                )
+
                 msgs = []
+
                 try:
-                    for _ in range(3):
-                        m = await asyncio.wait_for(ws.recv(), timeout=8)
-                        msgs.append(json.loads(m))
-                except asyncio.TimeoutError:
+                    for _ in range(2):
+                        message = await asyncio.wait_for(
+                            ws.recv(),
+                            timeout=8,
+                        )
+                        msgs.append(json.loads(message))
+
+                except (
+                    asyncio.TimeoutError,
+                    websockets.exceptions.ConnectionClosed,
+                ):
                     pass
-                check("WS connects", True, "")
+
+                has_hello = any(
+                    isinstance(message, dict) and message.get("type") == "hello"
+                    for message in msgs
+                )
+
+                has_metrics = any(
+                    isinstance(message, dict) and message.get("type") == "metrics"
+                    for message in msgs
+                )
+
+                check(
+                    "WS connects",
+                    has_hello,
+                    f"{len(msgs)} msgs",
+                )
+
                 check(
                     "WS receives hello",
-                    any(m.get("type") == "hello" for m in msgs),
+                    has_hello,
                     f"{len(msgs)} msgs",
                 )
+
                 check(
                     "WS receives metrics",
-                    any(m.get("type") == "metrics" for m in msgs),
+                    has_metrics,
                     f"{len(msgs)} msgs",
                 )
+
         except Exception as exc:
-            check("WS connects", False, str(exc))
+            check(
+                "WS connects",
+                False,
+                str(exc),
+            )
 
     asyncio.run(run())
 
@@ -312,14 +467,21 @@ def main() -> int:
     frontend()
 
     passed = sum(1 for _, ok, _ in results if ok)
+
     total = len(results)
-    print(f"\n{'=' * 60}\n{passed}/{total} checks passed")
+
+    print(f"\n{'=' * 60}\n" f"{passed}/{total} checks passed")
+
     if passed != total:
         failed = [name for name, ok, _ in results if not ok]
+
         print("Failed checks:")
+
         for n in failed:
             print(f"  - {n}")
+
         return 1
+
     return 0
 
 

@@ -12,10 +12,13 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setLoading(true);
+    setError("");
     try {
       const formData = new URLSearchParams();
       formData.append("username", email);
@@ -41,8 +44,15 @@ export default function LoginPage() {
       toast.success("Logged in successfully!");
       router.push("/");
     } catch (err) {
-      toast.error(err.message || "Failed to log in");
-    } finally {
+  const message =
+    err instanceof Error
+      ? err.message
+      : "Failed to log in";
+
+  setError(message);
+  toast.error(message);
+}
+    finally {
       setLoading(false);
     }
   };
@@ -81,6 +91,11 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
+          {error && (
+  <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+    {error}
+  </div>
+)}
           <div>
             <Button
               type="submit"

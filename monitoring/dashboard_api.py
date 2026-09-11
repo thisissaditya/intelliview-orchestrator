@@ -11,16 +11,17 @@ Endpoints:
 - GET /metrics/failures - Failure metrics
 - GET /metrics/retries - Retry statistics
 - GET /metrics/performance - Performance metrics
-- GET /metrics/summary - Lightweight summary metrics (active sessions, healthy workers, today's interviews)
+- GET /metrics/summary - Lightweight summary metrics
 - GET /metrics/dashboard - Comprehensive dashboard summary
 - WebSocket /ws/metrics - Real-time updates
 """
 
 import asyncio
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import func, select
 
 from config import API_TOKEN
@@ -42,7 +43,7 @@ def create_dashboard_routes(
     ws_manager,
 ) -> APIRouter:
     """
-    Create dashboard API routes
+    Create dashboard API routes.
 
     Args:
         metrics_collector: MetricsCollector instance
@@ -66,7 +67,7 @@ def create_dashboard_routes(
     @http_cache.cached("monitoring.metrics.system", ttl=2)
     async def get_system_metrics():
         """
-        Get comprehensive system-wide metrics
+        Get comprehensive system-wide metrics.
 
         Returns:
             dict: System metrics including sessions, workers, queue, health
@@ -76,7 +77,8 @@ def create_dashboard_routes(
 
             system_metrics = metrics_collector.get_system_metrics()
             health_check = health_monitor.check_system_health(
-                worker_registry=worker_registry, session_manager=session_manager
+                worker_registry=worker_registry,
+                session_manager=session_manager,
             )
 
             return {
@@ -99,7 +101,7 @@ def create_dashboard_routes(
     @http_cache.cached("monitoring.metrics.workers", ttl=2)
     async def get_worker_metrics_endpoint():
         """
-        Get detailed worker performance metrics
+        Get detailed worker performance metrics.
 
         Returns:
             dict: Worker metrics including utilization, health, capacity
@@ -128,7 +130,7 @@ def create_dashboard_routes(
     @http_cache.cached("monitoring.metrics.sessions", ttl=2)
     async def get_session_metrics_endpoint():
         """
-        Get session activity metrics
+        Get session activity metrics.
 
         Returns:
             dict: Session metrics including active, completed, failed, risk scores
@@ -157,7 +159,7 @@ def create_dashboard_routes(
     @http_cache.cached("monitoring.metrics.queue", ttl=2)
     async def get_queue_metrics():
         """
-        Get queue statistics and backlog information
+        Get queue statistics and backlog information.
 
         Returns:
             dict: Queue metrics including length, pending tasks, backlog percentage
@@ -186,7 +188,7 @@ def create_dashboard_routes(
     @http_cache.cached("monitoring.metrics.failures", ttl=2)
     async def get_failure_metrics_endpoint():
         """
-        Get failure and recovery metrics
+        Get failure and recovery metrics.
 
         Returns:
             dict: Failure metrics including counts, types, DLQ size
@@ -215,7 +217,7 @@ def create_dashboard_routes(
     @http_cache.cached("monitoring.metrics.retries", ttl=2)
     async def get_retry_metrics_endpoint():
         """
-        Get retry attempt metrics
+        Get retry attempt metrics.
 
         Returns:
             dict: Retry metrics including scheduled retries, strategy, statistics
@@ -244,7 +246,7 @@ def create_dashboard_routes(
     @http_cache.cached("monitoring.metrics.performance", ttl=2)
     async def get_performance_metrics():
         """
-        Get system performance metrics
+        Get system performance metrics.
 
         Returns:
             dict: Performance metrics including throughput, processing time, concurrency
@@ -278,44 +280,51 @@ def create_dashboard_routes(
         Get lightweight summary metrics for dashboard status widgets.
 
         Returns:
-            dict: Key dashboard statistics (active sessions, healthy workers, today's interviews)
+            dict: Key dashboard statistics
         """
         try:
             logger.debug("Fetching dashboard summary metrics")
 
             # 1. Active sessions
             active_sessions = 0
+
             try:
                 if session_tracker and hasattr(
                     session_tracker, "get_session_statistics"
                 ):
                     stats = session_tracker.get_session_statistics()
                     active_sessions = stats.get("active_sessions", 0)
+
                 elif session_tracker and hasattr(
                     session_tracker, "get_active_sessions"
                 ):
                     active_sessions = len(session_tracker.get_active_sessions())
+
                 elif metrics_collector and hasattr(
                     metrics_collector, "get_system_metrics"
                 ):
                     sys_m = metrics_collector.get_system_metrics()
                     active_sessions = sys_m.get("session_metrics", {}).get("active", 0)
+
                 elif metrics_collector and hasattr(
                     metrics_collector, "get_session_metrics"
                 ):
                     sess_m = metrics_collector.get_session_metrics(session_tracker)
                     active_sessions = sess_m.get("active_sessions", 0)
+
             except Exception as e:
                 logger.warning(f"Failed to fetch active sessions for summary: {e}")
 
             # 2. Healthy workers
             healthy_workers = 0
+
             try:
                 if worker_registry and hasattr(
                     worker_registry, "get_worker_statistics"
                 ):
                     w_stats = worker_registry.get_worker_statistics()
                     healthy_workers = w_stats.get("healthy_workers", 0)
+
                 elif worker_registry and hasattr(worker_registry, "get_all_workers"):
                     workers_map = worker_registry.get_all_workers()
                     healthy_workers = sum(
@@ -324,6 +333,7 @@ def create_dashboard_routes(
                         if w.get("status") == "healthy"
                         or w.get("health_status") == "healthy"
                     )
+
                 elif metrics_collector and hasattr(
                     metrics_collector, "get_system_metrics"
                 ):
@@ -331,23 +341,27 @@ def create_dashboard_routes(
                     healthy_workers = sys_m.get("worker_metrics", {}).get(
                         "healthy_workers", 0
                     )
+
             except Exception as e:
                 logger.warning(f"Failed to fetch healthy workers for summary: {e}")
 
             # 3. Today's interviews
-            # Reuses the same source and definition of "an interview" as the
-            # rest of the dashboard (InterviewSession, keyed off created_at) -
-            # see SessionTracker.get_session_statistics / get_active_sessions.
-            # InterviewSchedule rows are deliberately not added on top of this:
-            # a scheduled interview is represented by its InterviewSession once
-            # it starts, so counting both would double-count the same interview.
             todays_interviews = 0
+
             try:
                 now = datetime.now(timezone.utc)
-                start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+                start_of_today = now.replace(
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                )
+
                 end_of_today = start_of_today + timedelta(days=1)
 
                 session_db = SessionLocal()
+
                 try:
                     todays_interviews = (
                         session_db.execute(
@@ -362,6 +376,7 @@ def create_dashboard_routes(
                     )
                 finally:
                     session_db.close()
+
             except Exception as e:
                 logger.warning(f"Failed to fetch today's interviews for summary: {e}")
 
@@ -374,8 +389,10 @@ def create_dashboard_routes(
                 },
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
+
         except Exception as e:
             logger.error(f"Error fetching summary metrics: {e!s}")
+
             return {
                 "status": "error",
                 "error": str(e),
@@ -388,7 +405,7 @@ def create_dashboard_routes(
     @http_cache.cached("monitoring.metrics.dashboard", ttl=2)
     async def get_dashboard_summary():
         """
-        Get comprehensive dashboard summary with all metrics
+        Get comprehensive dashboard summary with all metrics.
 
         Returns:
             dict: Complete dashboard data for visualization
@@ -418,8 +435,10 @@ def create_dashboard_routes(
                 },
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
+
         except Exception as e:
             logger.error(f"Error generating dashboard summary: {e!s}")
+
             return {
                 "status": "error",
                 "error": str(e),
@@ -429,37 +448,71 @@ def create_dashboard_routes(
     # ========== WebSocket Real-Time Metrics Endpoint ==========
 
     @router.websocket("/ws/metrics")
-    async def websocket_metrics(
-        websocket: WebSocket, token: str | None = Query(default=None)
-    ):
+    async def websocket_metrics(websocket: WebSocket):
         """
-        WebSocket endpoint for real-time metrics push
+        WebSocket endpoint for real-time metrics push.
 
-        Streams:
-        - System metrics every 5 seconds
-        - Session updates
-        - Worker alerts
-        - Failure notifications
-
-        Auth: pass ?token=<API_TOKEN> as a query parameter.
+        Authentication is performed using the first WebSocket message:
+        {"type": "auth", "token": "<API_TOKEN>"}
         """
-        if token != API_TOKEN:
-            await websocket.close(code=1008, reason="invalid token")
+
+        await websocket.accept()
+
+        # Authenticate before registering the connection.
+        try:
+            auth_message = await asyncio.wait_for(
+                websocket.receive_json(),
+                timeout=5.0,
+            )
+
+        except (asyncio.TimeoutError, ValueError, WebSocketDisconnect):
+            try:
+                await websocket.close(
+                    code=1008,
+                    reason="invalid authentication",
+                )
+            except Exception:
+                pass
             return
+
+        token = auth_message.get("token") if isinstance(auth_message, dict) else None
+
+        if (
+            not isinstance(auth_message, dict)
+            or auth_message.get("type") != "auth"
+            or not isinstance(token, str)
+            or not token
+            or not isinstance(API_TOKEN, str)
+            or not API_TOKEN
+            or not secrets.compare_digest(token, API_TOKEN)
+        ):
+            try:
+                await websocket.close(
+                    code=1008,
+                    reason="invalid authentication",
+                )
+            except Exception:
+                pass
+            return
+
         await ws_manager.connect(websocket)
-        # Send a hello immediately so the client knows the connection is live.
-        await ws_manager.send_to_connection(
-            websocket,
-            {"type": "hello", "timestamp": datetime.now(timezone.utc).isoformat()},
-        )
 
         try:
+            await ws_manager.send_to_connection(
+                websocket,
+                {
+                    "type": "hello",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
             while True:
                 try:
-                    # Receive any client messages (for heartbeat/keep-alive)
-                    data = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+                    data = await asyncio.wait_for(
+                        websocket.receive_text(),
+                        timeout=5.0,
+                    )
 
-                    # Echo received message (for ping/pong)
                     if data:
                         await websocket.send_json(
                             {
@@ -467,8 +520,8 @@ def create_dashboard_routes(
                                 "timestamp": datetime.now(timezone.utc).isoformat(),
                             }
                         )
+
                 except asyncio.TimeoutError:
-                    # Send periodic metrics so dashboards see live updates.
                     try:
                         metrics = {
                             "system": metrics_collector.get_system_metrics(),
@@ -479,6 +532,7 @@ def create_dashboard_routes(
                                 session_tracker
                             ),
                         }
+
                         await ws_manager.send_to_connection(
                             websocket,
                             {
@@ -487,14 +541,18 @@ def create_dashboard_routes(
                                 "timestamp": datetime.now(timezone.utc).isoformat(),
                             },
                         )
+
                     except Exception as e:
                         logger.error(f"Error sending metrics: {e!s}")
                         break
+
         except WebSocketDisconnect:
-            await ws_manager.disconnect(websocket)
             logger.info("WebSocket client disconnected")
+
         except Exception as e:
             logger.error(f"WebSocket error: {e!s}")
+
+        finally:
             await ws_manager.disconnect(websocket)
 
     return router

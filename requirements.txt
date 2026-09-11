@@ -14,7 +14,7 @@ psycopg2-binary==2.9.12
 alembic==1.19.1
 
 # === Config / validation ===
-pydantic==2.13.4
+pydantic==2.13.5
 pydantic-settings==2.15.0
 python-dotenv==1.2.3
 boto3
@@ -44,6 +44,13 @@ mediapipe
 reportlab==4.2.5
 faiss-cpu
 google-generativeai
+
+# === Document Parsing / Vector Retrieval ===
+python-docx
+pypdf
+chromadb
+
 # === Load Testing ===
 locust
-pyttsx3==2.99
+pyttsx3>=2.90
+

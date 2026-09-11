@@ -1,6 +1,8 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 class ApiClient {
   token = null;
+
   setToken(token) {
     this.token = token;
     if (typeof window !== "undefined") {
@@ -8,17 +10,20 @@ class ApiClient {
       else localStorage.removeItem("api_token");
     }
   }
+
   loadToken() {
     if (typeof window !== "undefined") {
       this.token = localStorage.getItem("api_token");
     }
     return this.token;
   }
+
   headers(extra = {}) {
     const h = { "Content-Type": "application/json", ...extra };
     if (this.token) h["Authorization"] = `Bearer ${this.token}`;
     return h;
   }
+
   async request(method, path, body, init) {
     const res = await fetch(`${API_BASE}${path}`, {
       method,
@@ -26,6 +31,7 @@ class ApiClient {
       body: body !== void 0 ? JSON.stringify(body) : void 0,
       ...init
     });
+
     if (!res.ok) {
       let detail = res.statusText;
       try {
@@ -35,33 +41,41 @@ class ApiClient {
       }
       throw new Error(`${method} ${path} failed (${res.status}): ${detail}`);
     }
+
     if (res.status === 204) return void 0;
     return await res.json();
   }
+
   get(path) {
     return this.request("GET", path);
   }
+
   post(path, body) {
     return this.request("POST", path, body);
   }
+
   delete(path) {
     return this.request("DELETE", path);
   }
+
   put(path, body) {
     return this.request("PUT", path, body);
- }
-  /** Build the WebSocket URL with the token as a query param. */
+  }
+
+  /** Build the WebSocket URL without putting credentials in the URL. */
   wsUrl(path) {
     const base = (process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000").replace(/^http/, "ws");
-    const q = this.token ? `?token=${encodeURIComponent(this.token)}` : "";
-    return `${base}${path}${q}`;
+    return `${base}${path}`;
   }
 }
+
 const api = new ApiClient();
+
 const endpoints = {
   health: () => api.get("/health"),
   startInterview: (payload) => api.post("/start-interview", payload),
   createCandidate: (payload) => api.post("/candidates", payload),
+  bulkCreateCandidates: (payload) => api.post("/candidates/bulk", payload),
   sessionStatus: (id) => api.get(`/session-status/${id}`),
   activeSessions: () => api.get("/active-sessions"),
   completedSessions: (limit = 50) => api.get(`/completed-sessions?limit=${limit}`),
@@ -80,14 +94,15 @@ const endpoints = {
   faultStatistics: () => api.get("/fault-statistics"),
   failureLog: (limit = 50) => api.get(`/failure-log?limit=${limit}`),
   deadLetterQueue: (limit = 50) => api.get(`/dead-letter-queue?limit=${limit}`),
-retrySession: (session_id) => api.post(`/retry-session/${session_id}`),
-detectFailures: () => api.post("/detect-failures"),
-getSettings: () => api.get("/settings"),
-getRiskConfig: () => api.get("/api/admin/risk-config"),
-updateSettings: (payload) => api.put("/settings", payload),
-reportWebVitals: (payload) => api.post("/metrics/web-vitals", payload),
-clearCache: () => api.delete("/clear-cache")
+  retrySession: (session_id) => api.post(`/retry-session/${session_id}`),
+  detectFailures: () => api.post("/detect-failures"),
+  getSettings: () => api.get("/settings"),
+  getRiskConfig: () => api.get("/api/admin/risk-config"),
+  updateSettings: (payload) => api.put("/settings", payload),
+  reportWebVitals: (payload) => api.post("/metrics/web-vitals", payload),
+  clearCache: () => api.delete("/clear-cache")
 };
+
 export {
   ApiClient,
   api,

@@ -1,9 +1,17 @@
 """WebSocket connection manager for the dashboard.
 
 Holds the active-connection set and offers typed broadcast helpers that
-publish lifecycle events to every connected client. The dashboard frontend
-connects via `/monitoring/ws/metrics?token=<api_token>` and listens for
-typed messages: `metrics`, `session_update`, `worker_alert`, `health_update`.
+publish lifecycle events to every connected client.
+
+Dashboard WebSocket authentication is performed by the dashboard API
+endpoint before a connection is registered with this manager. The API token
+is therefore never included in the WebSocket URL or handled by this manager.
+
+The dashboard frontend listens for typed messages:
+  * `metrics`
+  * `session_update`
+  * `worker_alert`
+  * `health_update`
 
 Broadcast helpers are invoked from:
   * `SessionManager.update_session_status` — when a session transitions
@@ -35,8 +43,7 @@ class WebSocketManager:
         self.connection_count: int = 0
 
     async def connect(self, websocket: WebSocket) -> None:
-        """Accept and register a new dashboard client."""
-        await websocket.accept()
+        """Register an already-authenticated dashboard client."""
         self.active_connections.add(websocket)
         self.connection_count += 1
         logger.info(
@@ -67,12 +74,14 @@ class WebSocketManager:
     async def _broadcast(self, message: dict[str, Any]) -> None:
         """Send a message to every active connection, dropping dead ones."""
         dead: set[WebSocket] = set()
+
         for connection in list(self.active_connections):
             try:
                 await connection.send_json(message)
             except Exception as exc:
                 logger.debug("broadcast send failed: %s", exc)
                 dead.add(connection)
+
         for conn in dead:
             await self.disconnect(conn)
 
@@ -80,7 +89,11 @@ class WebSocketManager:
 
     async def broadcast_metrics(self, metrics: dict[str, Any]) -> None:
         await self._broadcast(
-            {"type": "metrics", "data": metrics, "timestamp": _now().isoformat()}
+            {
+                "type": "metrics",
+                "data": metrics,
+                "timestamp": _now().isoformat(),
+            }
         )
 
     async def broadcast_session_update(
