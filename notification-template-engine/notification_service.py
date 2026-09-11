@@ -2,7 +2,7 @@ import logging
 import re
 from html import escape
 
-from template_loader import load_template
+from template_loader import load_template, validate_template_variables
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -12,15 +12,12 @@ def render_template(template, values):
     Replaces placeholders dynamically.
     Raises an error if a required placeholder value is missing.
     """
+    validate_template_variables(template, values)
 
     placeholders = re.findall(r"\{\{(.*?)\}\}", template)
 
     for placeholder in placeholders:
         key = placeholder.strip()
-
-        if key not in values:
-            raise ValueError(f"Missing value for placeholder '{key}'.")
-
         template = template.replace("{{" + key + "}}", str(values[key]))
 
     return template
@@ -37,6 +34,11 @@ def send_notification(user, event, data, format="txt"):
 
     if not isinstance(data, dict):
         raise ValueError("Notification data must be a dictionary.")
+
+    # Check notification preference before sending.
+    if not user.is_notification_enabled(event):
+        logging.info(f"Notification '{event}' disabled for {user.name}")
+        return None
 
     template = load_template(user.locale, event, format=format)
 

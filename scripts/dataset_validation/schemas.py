@@ -56,7 +56,24 @@ EVALUATION_DATASET_SCHEMA = {
     },
 }
 
+NEW_DATASET_SCHEMA = {
+    "id_field": "record_id",
+    "dedup_field": "text",
+    "required_fields": {
+        "record_id": str,
+        "text": str,
+        "label": str,
+    },
+    "enum_fields": {
+        "label": {"positive", "negative"},
+    },
+    "text_length": {
+        "text": (1, 5000),
+    },
+}
+
 SCHEMAS = {
     "question_bank": QUESTION_BANK_SCHEMA,
     "evaluation_dataset": EVALUATION_DATASET_SCHEMA,
+    "new_dataset": NEW_DATASET_SCHEMA,
 }

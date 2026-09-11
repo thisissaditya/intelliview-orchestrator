@@ -11,6 +11,7 @@ import threading
 from celery.signals import (
     task_postrun,
     task_prerun,
+    task_received,
     worker_shutdown,
 )
 
@@ -25,6 +26,7 @@ SUPPORTED_POOL = "solo"
 
 agent = None
 heartbeat_thread = None
+health_report_thread = None
 
 
 def _run_celery() -> None:
@@ -53,7 +55,7 @@ def _run_celery() -> None:
 
 
 def main() -> int:
-    global agent, heartbeat_thread
+    global agent, heartbeat_thread, health_report_thread
 
     logging.basicConfig(
         level=logging.INFO,
@@ -91,17 +93,27 @@ def main() -> int:
         return 1
 
     # Track active Celery tasks
+    @task_received.connect
+    def _on_received(**_):
+        agent.increment_queued()
+
     @task_prerun.connect
     def _on_prerun(**_):
+        agent.mark_task_started()
         agent.increment_active()
 
     @task_postrun.connect
     def _on_postrun(**_):
         agent.decrement_active()
 
-    # Start the heartbeat loop managed by WorkerAgent
+    # Start the heartbeat and health-report loops managed by WorkerAgent
     heartbeat_thread = threading.Thread(target=agent.heartbeat_loop, daemon=True)
     heartbeat_thread.start()
+
+    health_report_thread = threading.Thread(
+        target=agent.health_report_loop, daemon=True
+    )
+    health_report_thread.start()
 
     # Celery begins its own graceful ("warm") shutdown here: it stops
     # accepting new tasks and waits for the current task to finish.
@@ -121,14 +133,20 @@ def main() -> int:
     def _on_worker_shutdown(**kwargs):
         logger.info("Shutting down worker")
 
-        # Tell the heartbeat loop to stop, then actually wait for it to
-        # finish instead of just hoping it did.
+        # Tell the heartbeat/health-report loops to stop, then actually wait
+        # for them to finish instead of just hoping they did.
         agent._stop = True
         if heartbeat_thread is not None:
             heartbeat_thread.join(timeout=10)
             if heartbeat_thread.is_alive():
                 logger.warning(
                     "Heartbeat thread did not stop within timeout; continuing shutdown anyway"
+                )
+        if health_report_thread is not None:
+            health_report_thread.join(timeout=10)
+            if health_report_thread.is_alive():
+                logger.warning(
+                    "Health report thread did not stop within timeout; continuing shutdown anyway"
                 )
 
         agent.deregister()

@@ -12,6 +12,9 @@ from config import REDIS_URL
 from metrics.prometheus_metrics import TASKS_PERMANENTLY_FAILED
 
 celery_app = Celery("interview_tasks", broker=REDIS_URL, backend=REDIS_URL)
+EVALUATION_MAX_RETRIES = 3
+EVALUATION_RETRY_BACKOFF_BASE = 2
+EVALUATION_RETRY_BACKOFF_MAX = 60
 CeleryInstrumentor().instrument()
 
 
@@ -47,12 +50,15 @@ celery_app.conf.update(
             "task": "workers.tasks.scan_and_dispatch_retries",
             "schedule": 60.0,
         },
+        "detect-no-shows": {
+            "task": "workers.tasks.detect_no_shows",
+            "schedule": 60.0,
+        },
     },
 )
 
 # Auto-discover tasks from workers module
 celery_app.autodiscover_tasks(["workers"])
-
 
 _SESSION_TASK_NAMES: frozenset[str] = frozenset(
     {

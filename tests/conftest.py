@@ -115,6 +115,11 @@ def api_base_url() -> str:
     )
 
 
+@pytest.fixture(scope="session")
+def api_token() -> str:
+    return os.getenv("API_TOKEN", "ci-test-token")
+
+
 # ---------------------------------------------------------------------------
 # Celery
 # ---------------------------------------------------------------------------

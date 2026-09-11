@@ -24,6 +24,8 @@ from prometheus_client import (
     generate_latest,
 )
 
+from monitoring.prometheus_metrics import AVG_EVALUATION_LATENCY
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -31,6 +33,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 registry = CollectorRegistry()
+registry.register(AVG_EVALUATION_LATENCY)
 
 # ---------------------------------------------------------------------------
 # Request metrics
@@ -137,6 +140,27 @@ WORKER_CAPACITY = Gauge(
 WORKER_HEARTBEAT_AGE_SECONDS = Gauge(
     "intelliview_worker_heartbeat_age_seconds",
     "Seconds since last heartbeat per worker",
+    ["worker_id"],
+    registry=registry,
+)
+
+WORKER_CPU_PCT = Gauge(
+    "intelliview_worker_cpu_pct",
+    "Self-reported CPU utilization percent per worker",
+    ["worker_id"],
+    registry=registry,
+)
+
+WORKER_MEMORY_PCT = Gauge(
+    "intelliview_worker_memory_pct",
+    "Self-reported memory utilization percent per worker",
+    ["worker_id"],
+    registry=registry,
+)
+
+WORKER_QUEUE_DEPTH = Gauge(
+    "intelliview_worker_queue_depth",
+    "Self-reported queue depth per worker",
     ["worker_id"],
     registry=registry,
 )

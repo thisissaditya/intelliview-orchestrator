@@ -28,7 +28,30 @@ SUPPORTED_EVENTS = {
 VALID_PLACEHOLDERS = {"{{name}}", "{{date}}", "{{time}}"}
 
 
-def validate_template(template):
+def validate_template_variables(template, variables):
+    """
+    Validate that all variables referenced in the template are provided in the variables dictionary.
+    Raises ValueError if any required variable is missing or None.
+    """
+    if variables is None:
+        variables = {}
+
+    placeholders = re.findall(r"\{\{(.*?)\}\}", template)
+    missing = []
+    for placeholder in placeholders:
+        key = placeholder.strip()
+        if key not in variables or variables[key] is None:
+            if key not in missing:
+                missing.append(key)
+
+    if missing:
+        missing_str = ", ".join(f"'{m}'" for m in missing)
+        raise ValueError(f"Missing required template variable(s): {missing_str}")
+
+    return True
+
+
+def validate_template(template, variables=None):
     """
     Validate template content.
     """
@@ -45,6 +68,9 @@ def validate_template(template):
 
     if invalid:
         raise ValueError(f"Invalid placeholders found: {invalid}")
+
+    if variables is not None:
+        validate_template_variables(template, variables)
 
     return True
 

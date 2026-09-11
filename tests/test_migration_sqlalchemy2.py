@@ -28,6 +28,7 @@ def db_session(postgres_container):
         postgres_container.get_connection_url(),
         future=True,
     )
+    Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
 
     TestingSessionLocal = sessionmaker(bind=engine)

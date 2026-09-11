@@ -28,6 +28,25 @@ import  RiskTimeline  from "@/components/RiskTimeline";
 import { cn, riskColor } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
+// Persisted so a refresh doesn't silently drop a paused interview back to
+// the "start a new one" screen. Only UI state is restored here (not the
+// camera/mic stream, which the browser can't hand back without a fresh
+// getUserMedia call) — risk-scoring is untouched by any of this.
+const SESSION_STORAGE_KEY = "iv_interview_session_state";
+
+function readPersistedSession() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.isLive) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export default function InterviewPage() {
   const token = useAppStore((s) => s.token);
   const videoRef = useRef(null);
@@ -36,16 +55,32 @@ export default function InterviewPage() {
   const audioCtxRef = useRef(null);
   const animFrameRef = useRef(null);
 
+  const persisted = useRef(typeof window !== "undefined" ? readPersistedSession() : null);
+
   const [videoEnabled, setVideoEnabled] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
-  const [isPaused, setIsPaused] = useState(false);
-  const [isLive, setIsLive] = useState(false);
-  const [activeSession, setActiveSession] = useState(null);
+  const [isPaused, setIsPaused] = useState(() => persisted.current?.isPaused ?? false);
+  const [isLive, setIsLive] = useState(() => persisted.current?.isLive ?? false);
+  const [activeSession, setActiveSession] = useState(() => persisted.current?.activeSession ?? null);
   const [riskScore, setRiskScore] = useState(0);
   const [feedback, setFeedback] = useState([]);
   const [audioLevels, setAudioLevels] = useState(new Array(32).fill(0));
-  const [candidate, setCandidate] = useState("");
+  const [candidate, setCandidate] = useState(() => persisted.current?.candidate ?? "");
   const [starting, setStarting] = useState(false);
+
+  // Keep the persisted copy in sync while an interview is live; clear it
+  // once the interview ends so a later refresh doesn't resurrect it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isLive) {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ isLive, isPaused, activeSession, candidate })
+    );
+  }, [isLive, isPaused, activeSession, candidate]);
 
   const {
     moments,
@@ -155,6 +190,9 @@ export default function InterviewPage() {
     setIsPaused(false);
     setRiskScore(0);
     setFeedback([]);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    }
     toast.info("Interview ended");
   };
 
@@ -173,23 +211,38 @@ export default function InterviewPage() {
   return (
     <ErrorBoundary>
       <div className="space-y-6 animate-fade-in">
-        <div className="flex items-end justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-zinc-50">Live Interview</h1>
+            <h1 className="text-xl font-semibold text-zinc-50 sm:text-2xl">Live Interview</h1>
             <p className="text-sm text-muted">Real-time video feed with AI-powered analysis.</p>
           </div>
           {isLive && (
             <div className="flex items-center gap-2">
               <Radio size={12} className="text-emerald-400 animate-pulse" />
               <span className="text-xs text-emerald-400">LIVE</span>
+              {isPaused && (
+                <Badge variant="warn" className="ml-1">
+                  Paused
+                </Badge>
+              )}
             </div>
           )}
         </div>
 
+        {isLive && isPaused && (
+          <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-300 sm:gap-3">
+            <Pause size={16} className="shrink-0" />
+            <span className="font-medium">Interview Paused</span>
+            <span className="hidden text-amber-300/70 sm:inline">
+              Camera, mic, and controls are on hold until you resume.
+            </span>
+          </div>
+        )}
+
         {!isLive && (
           <Card title="Start interview" description="Begin a new live interview session.">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-[200px] flex-1">
+            <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <div className="w-full sm:min-w-[200px] sm:flex-1">
                 <label className="block text-xs text-muted">Candidate ID</label>
                 <input
                   value={candidate}
@@ -201,7 +254,7 @@ export default function InterviewPage() {
               <button
                 onClick={handleStart}
                 disabled={!token || starting || !candidate.trim()}
-                className="flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-dark disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-dark disabled:opacity-50 sm:w-auto sm:justify-start"
               >
                 <Video size={14} /> {starting ? "Starting..." : "Start Interview"}
               </button>
@@ -217,7 +270,7 @@ export default function InterviewPage() {
           </Card>
 
           <Card title="Audio Visualization">
-          <div className="relative flex items-end gap-[2px] h-16 overflow-hidden">
+          <div className="relative flex items-end gap-px h-12 overflow-hidden sm:h-16 sm:gap-[2px]">
               {audioLevels.map((level, i) => (
                 <div
                   key={i}
@@ -255,11 +308,12 @@ export default function InterviewPage() {
               )}
             </div>
             {isLive && (
-                <div className="flex items-center gap-2 border-t border-border px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-3 sm:px-4">
                   <button
                     onClick={toggleAudio}
+                    disabled={isPaused}
                     className={cn(
-                      "rounded-md border border-border p-2 transition-colors",
+                      "rounded-md border border-border p-2 transition-colors disabled:cursor-not-allowed disabled:opacity-40",
                       audioEnabled ? "text-zinc-300 hover:bg-bg-card" : "text-rose-400 bg-rose-500/10"
                     )}
                     aria-label={audioEnabled ? "Mute" : "Unmute"}
@@ -331,13 +385,13 @@ export default function InterviewPage() {
 
             <Card title="Session Info">
               <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted">Session</span>
-                  <span className="font-mono text-xs text-zinc-300">{activeSession || "—"}</span>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="shrink-0 text-muted">Session</span>
+                  <span className="truncate font-mono text-xs text-zinc-300">{activeSession || "—"}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">Candidate</span>
-                  <span className="text-zinc-300">{candidate || "—"}</span>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="shrink-0 text-muted">Candidate</span>
+                  <span className="truncate text-zinc-300">{candidate || "—"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted">Status</span>

@@ -136,6 +136,21 @@ class MomentTracker:
 
         return moments
 
+    def export_timeline(
+        self,
+        session_id: str,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> str:
+        """Export a session's moments as an ordered timeline JSON string."""
+        timeline = self.get_timeline(
+            session_id=session_id,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+        return json.dumps(timeline)
+
     def get_session_summary(self, session_id: str) -> dict[str, Any]:
         moments = self.get_session_moments(session_id, limit=1000)
 

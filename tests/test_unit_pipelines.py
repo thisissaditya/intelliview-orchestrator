@@ -109,3 +109,19 @@ def test_helper_functions_return_dicts():
         (generate_feedback, "x"),
     ]:
         assert isinstance(fn(sid), dict)
+
+
+def test_video_pipeline_handles_corrupt_input(monkeypatch):
+    """Corrupt/invalid video input should return a clean error, not crash."""
+    from workers import video_pipeline
+
+    def broken_detect_face(session_id):
+        raise ValueError("Corrupt video file")
+
+    monkeypatch.setattr(video_pipeline, "detect_face", broken_detect_face)
+
+    result = video_pipeline.run_video_analysis("test-session-corrupt")
+
+    assert result["error"] == "corrupt_or_unreadable_video"
+    assert "session_id" in result
+    assert result["risk_score"] == 0.0

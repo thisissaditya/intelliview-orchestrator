@@ -15,6 +15,7 @@ import time
 from threading import Thread
 
 import httpx
+import psutil
 
 from config import API_TOKEN, WORKER_CONCURRENCY
 
@@ -29,6 +30,7 @@ class WorkerAgent:
         capacity: int = WORKER_CONCURRENCY,
         weight: int | None = None,
         heartbeat_interval: int = 15,
+        health_report_interval: int = 30,
         tags: list[str] | None = None,
     ):
         self.api_url = api_url.rstrip("/")
@@ -36,12 +38,18 @@ class WorkerAgent:
         self.capacity = capacity
         self.weight = weight
         self.heartbeat_interval = heartbeat_interval
+        self.health_report_interval = health_report_interval
         self.tags = tags or []
 
         # Process-local counter used for worker heartbeats.
         # This is accurate only when running with the 'solo' pool.
         self.active_tasks = 0
         self.draining = False
+
+        # Process-local counter of tasks this worker has pulled from the
+        # broker but not yet started executing, used as the self-reported
+        # queue depth. Accurate only with the 'solo' pool, same as above.
+        self.queued_tasks = 0
 
         self.tasks_completed = 0  # track total completed tasks
         self.max_tasks_before_restart = int(
@@ -138,6 +146,19 @@ class WorkerAgent:
             )
             time.sleep(self.heartbeat_interval)
 
+    def _collect_health_metrics(self) -> dict:
+        return {
+            "worker_id": self.worker_id,
+            "cpu_pct": psutil.cpu_percent(interval=None),
+            "memory_pct": psutil.virtual_memory().percent,
+            "queue_depth": self.queued_tasks,
+        }
+
+    def health_report_loop(self) -> None:
+        while not self._stop:
+            self._post("/worker/health-report", self._collect_health_metrics())
+            time.sleep(self.health_report_interval)
+
     def _handle_shutdown(self, signum, frame) -> None:
         logger.info(
             "Received signal %s, shutting down worker %s", signum, self.worker_id
@@ -154,7 +175,14 @@ class WorkerAgent:
         if not self.register():
             sys.exit(1)
         Thread(target=self.heartbeat_loop, daemon=True).start()
+        Thread(target=self.health_report_loop, daemon=True).start()
         logger.info("Worker agent started for %s", self.worker_id)
+
+    def increment_queued(self) -> None:
+        self.queued_tasks += 1
+
+    def mark_task_started(self) -> None:
+        self.queued_tasks = max(0, self.queued_tasks - 1)
 
     def increment_active(self) -> None:
         self.active_tasks += 1

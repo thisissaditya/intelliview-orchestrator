@@ -27,7 +27,11 @@ def db_session():
 
 
 def test_create_candidate(db_session):
-    candidate = Candidate(candidate_id="c1", name="Bhawna", email="bhawna@example.com")
+    candidate = Candidate(
+        candidate_id="c1",
+        name="Bhawna",
+        email="bhawna@example.com",
+    )
 
     db_session.add(candidate)
     db_session.commit()
@@ -40,7 +44,11 @@ def test_create_candidate(db_session):
 
 
 def test_create_interview_session(db_session):
-    session = InterviewSession(session_id="s1", candidate_id="c1", status="pending")
+    session = InterviewSession(
+        session_id="s1",
+        candidate_id="c1",
+        status="pending",
+    )
 
     db_session.add(session)
     db_session.commit()
@@ -54,7 +62,10 @@ def test_create_interview_session(db_session):
 
 def test_create_question(db_session):
     question = Question(
-        question_id="q1", text="What is Python?", category="Python", difficulty="easy"
+        question_id="q1",
+        text="What is Python?",
+        category="Python",
+        difficulty="easy",
     )
 
     db_session.add(question)
@@ -69,7 +80,9 @@ def test_create_question(db_session):
 
 def test_create_interview_template(db_session):
     template = InterviewTemplate(
-        template_id="t1", name="Python Interview", interview_type="technical"
+        template_id="t1",
+        name="Python Interview",
+        interview_type="technical",
     )
 
     db_session.add(template)

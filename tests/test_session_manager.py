@@ -333,19 +333,16 @@ class TestGetSession:
         db.rollback.assert_called_once()
         db.close.assert_called_once()
 
-    def test_cache_lookup_error_raises_unboundlocalerror(self, manager):
+    def test_cache_lookup_error_returns_none(self, manager):
         """
-        Known latent bug: if state_sync.get_session_state() itself raises,
-        `session_db` is never assigned, so the `except` block's call to
-        `session_db.rollback()` raises UnboundLocalError instead of the
-        intended graceful `return None`. This test pins the current
-        behavior; it should be revisited once the bug is fixed (session_db
-        should be initialized to None before the try block).
+        Redis/cache failure should be handled gracefully without
+        raising UnboundLocalError.
         """
         manager.state_sync.get_session_state.side_effect = RuntimeError("redis down")
 
-        with pytest.raises(UnboundLocalError):
-            manager.get_session("session_abc123")
+        result = manager.get_session("session_abc123")
+
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +420,21 @@ class TestMarkSessionCompleted:
 
         assert result is False
         db.commit.assert_not_called()
+
+    def test_rejects_invalid_transition_to_completed(self, manager):
+        interview = make_interview(SessionManager.CREATED)
+        db = make_db_session(scalar_result=interview)
+
+        with patch.object(sm_module, "SessionLocal", return_value=db):
+            result = manager.mark_session_completed(
+                "session_abc123",
+                risk_score=0.5,
+            )
+
+        assert result is False
+        assert interview.status == SessionManager.CREATED
+        db.commit.assert_not_called()
+        manager.state_sync.set_session_state.assert_not_called()
 
     def test_db_error_rolls_back_and_returns_false(self, manager):
         interview = make_interview(SessionManager.EVALUATING)
@@ -540,3 +552,39 @@ class TestBroadcastStatus:
                 await asyncio.sleep(0)
 
         asyncio.run(scenario())  # completing without raising is the assertion
+
+
+@pytest.mark.asyncio
+async def test_question_timer_calls_timeout(manager):
+    callback = AsyncMock()
+
+    manager.QUESTION_ANSWER_TIMEOUT = 0.01
+
+    manager.start_question_timer(
+        "session_1",
+        "question_1",
+        callback,
+    )
+
+    await asyncio.sleep(0.02)
+
+    callback.assert_awaited_once_with("session_1", "question_1")
+
+
+@pytest.mark.asyncio
+async def test_question_timer_can_be_cancelled(manager):
+    callback = AsyncMock()
+
+    manager.QUESTION_ANSWER_TIMEOUT = 0.01
+
+    manager.start_question_timer(
+        "session_1",
+        "question_1",
+        callback,
+    )
+
+    manager.cancel_question_timer("session_1", "question_1")
+
+    await asyncio.sleep(0.02)
+
+    callback.assert_not_awaited()

@@ -1,22 +1,22 @@
 # === Core HTTP API ===
 fastapi==0.141.1
-uvicorn[standard]==0.52.0
+uvicorn[standard]==0.52.4
 python-multipart==0.0.20
 httpx==0.27.0
 websockets==16.1.1
 # === Async task queue ===
 celery[redis]==5.6.3
 redis==5.3.1
-flower==2.0.1
+flower==2.1.0
 # === Database / ORM ===
-sqlalchemy==2.0.51
+sqlalchemy==2.0.52
 psycopg2-binary==2.9.12
 alembic==1.19.1
 
 # === Config / validation ===
 pydantic==2.13.4
 pydantic-settings==2.15.0
-python-dotenv==1.2.2
+python-dotenv==1.2.3
 boto3
 # === Security / Auth ===
 python-jose[cryptography]==3.3.0
@@ -31,12 +31,19 @@ opentelemetry-exporter-otlp-proto-grpc
 # === Dev / Test ===
 pytest==8.3.4
 pytest-asyncio==0.25.0
-pytest-mock==3.14.0
-pytest-cov==6.0.0
+pytest-mock==3.15.1
+pytest-cov==6.3.0
 testcontainers
 # === Hallucination Detector ===
 sentence-transformers
+# === Computer Vision ===
+opencv-python
+mediapipe
+
+# === PDF Generation ===
+reportlab==4.2.5
 faiss-cpu
 google-generativeai
 # === Load Testing ===
 locust
+pyttsx3==2.99

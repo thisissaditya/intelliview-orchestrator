@@ -1,3 +1,5 @@
+import secrets
+
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -47,7 +49,10 @@ def get_current_user(
                         "email": user.email,
                     }
         # Fall back to checking if the bearer token is actually the raw API token
-        if token == API_TOKEN:
+        if token and API_TOKEN and secrets.compare_digest(token, API_TOKEN):
+            return {"role": "admin"}
+
+        if x_api_token and API_TOKEN and secrets.compare_digest(x_api_token, API_TOKEN):
             return {"role": "admin"}
 
         raise HTTPException(

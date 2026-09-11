@@ -259,7 +259,7 @@ def _print_summary(environment, **kwargs):
 
     rate_limited_count = 0
     other_failure_count = 0
-    for key, err in stats.errors.items():
+    for _key, err in stats.errors.items():
         occurrences = getattr(err, "occurrences", 0)
         error_text = getattr(err, "error", "") or ""
         if "rate_limited" in str(error_text):

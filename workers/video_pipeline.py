@@ -215,21 +215,32 @@ def run_video_analysis(session_id: str) -> dict[str, Any]:
             )
 
     if results is None:
-        face = detect_face(session_id)
-        head = detect_suspicious_head_movement(session_id)
-        phone = detect_mobile_phone(session_id)
-        multi = detect_multiple_persons(session_id)
+        try:
+            face = detect_face(session_id)
+            head = detect_suspicious_head_movement(session_id)
+            phone = detect_mobile_phone(session_id)
+            multi = detect_multiple_persons(session_id)
 
-        results = {
-            "session_id": session_id,
-            "face_detected": face,
-            "head_movement_suspicious": head,
-            "phone_detected": phone,
-            "multiple_persons": multi,
-            "risk_score": 0.0,
-        }
+            results = {
+                "session_id": session_id,
+                "face_detected": face,
+                "head_movement_suspicious": head,
+                "phone_detected": phone,
+                "multiple_persons": multi,
+            }
+        except Exception as exc:
+            logger.error(
+                "Video analysis failed for session %s due to corrupt or unreadable input : %s",
+                session_id,
+                exc,
+            )
+            return {
+                "session_id": session_id,
+                "error": "corrupt_or_unreadable_video",
+                "risk_score": 0.0,
+            }
 
-    # Recalculate risk score locally using the latest risk config
+    # Recalculate risk score locally using the latest risk config.
     results["risk_score"] = calculate_video_risk_score(results)
     logger.info(f"Video analysis completed for session {session_id}")
     return results

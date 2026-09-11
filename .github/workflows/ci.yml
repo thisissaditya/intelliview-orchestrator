@@ -2,10 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main, Stabilized-version]
+    branches: [main, Stabilized-version,issue-22-dataset-validation]
 
   pull_request:
-    branches: [main, Stabilized-version]
+    branches: [main, Stabilized-version,issue-22-dataset-validation]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -43,6 +44,7 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 5
+
     env:
       REDIS_URL: redis://localhost:6379/0
       POSTGRES_HOST: localhost
@@ -73,13 +75,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff black isort
+          pip install "packaging<26"
+          pip install "ruff==0.9.10" "black==25.1.0" "isort==6.0.1"
       - name: Black format check
-        run: black --check .
-
+        run: python -m black --check .
       - name: isort import check
-        run: isort --check-only --profile black .
-
+        run: python -m isort --check-only --profile black .
       - name: Ruff lint
         run: ruff check orchestrator workers monitoring database tests scripts routers retrieval
 
@@ -98,7 +99,7 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: html-coverage-report
           path: htmlcov/
@@ -113,9 +114,15 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      API_TOKEN: test-token
+      API_TOKEN: ci-test-token
       API_BASE_URL: http://localhost:8000
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ai_interview_test
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      DATABASE_SSLMODE: disable
+      REDIS_URL: redis://redis:6379/0
       XDG_CACHE_HOME: /tmp/.cache
       HOME: /tmp
       TMPDIR: /tmp
@@ -125,7 +132,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: false
-          
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -136,14 +143,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install httpx pytest
+
       - name: Validate API import path
         run: |
           docker compose -f docker-compose.yml run --rm fastapi \
             python -c "import orchestrator.main; print('ok')"
+
       - name: Bring up full stack
         run: |
           docker compose -f docker-compose.yml up -d --build \
             redis postgres fastapi worker
+
       - name: Wait for API to become healthy
         run: |
           for i in $(seq 1 60); do
@@ -154,9 +164,16 @@ jobs:
             echo "Waiting for API... ($i)"
             sleep 2
           done
+
           echo "API never became healthy" >&2
           docker compose -f docker-compose.yml logs
           exit 1
+
+      - name: Seed verified E2E candidate
+        run: |
+          docker compose -f docker-compose.yml exec -T fastapi \
+            python -c "from database.db import SessionLocal; from database.models import Candidate; from datetime import datetime, timezone; db=SessionLocal(); c=Candidate(candidate_id='e2e-verified-candidate', name='E2E Candidate', email='e2e-verified@example.com', email_verified=True, skills=[], interview_history=[], total_interviews=0, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc)); db.merge(c); db.commit(); db.close()"
+
       - name: Run end-to-end smoke tests
         run: pytest tests/test_e2e_smoke.py -v -m e2e
 
@@ -204,9 +221,6 @@ jobs:
 
   # --------------------------------------------------
   # Check whether Docker Hub secrets are configured
-  # (job-level `if:` conditions cannot reference the
-  # `secrets` context directly, so we resolve it here
-  # inside a step and expose it as a job output)
   # --------------------------------------------------
 
   check-secrets:
@@ -241,7 +255,7 @@ jobs:
       - check-secrets
     runs-on: ubuntu-latest
 
-    if: |
+    if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Stabilized-version') &&
       needs.check-secrets.outputs.has-docker-creds == 'true'
@@ -253,7 +267,7 @@ jobs:
           submodules: false
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
@@ -262,18 +276,24 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push FastAPI image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
           tags: |
+            ${{ secrets.DOCKER_USERNAME }}/intelliview-fastapi:latest
+            ${{ secrets.DOCKER_USERNAME }}/intelliview-fastapi:${{ github.sha }}
+
                ${{ secrets.DOCKER_USERNAME }}/intelliview-fastapi:${{ github.sha }}
       - name: Build and push Worker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
           tags: |
+            ${{ secrets.DOCKER_USERNAME }}/intelliview-worker:latest
+            ${{ secrets.DOCKER_USERNAME }}/intelliview-worker:${{ github.sha }}
+
                ${{ secrets.DOCKER_USERNAME }}/intelliview-worker:${{ github.sha }}
       - name: Build and push Frontend image
         uses: docker/build-push-action@v6

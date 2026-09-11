@@ -9,6 +9,24 @@ from orchestrator import store
 from orchestrator.models import RiskConfigCreate, RiskConfigResponse, RiskConfigUpdate
 
 router = APIRouter(prefix="/risk-configs", tags=["Risk Weight Configuration"])
+engine_router = APIRouter(prefix="/risk-engine", tags=["Risk Engine Integration"])
+
+
+@engine_router.get(
+    "/weights/{job_position}",
+    summary="Get risk weights for a given job position",
+)
+def get_risk_engine_weights(job_position: str):
+    """
+    Used by the risk engine to get weights for scoring.
+    Returns custom weights if configured, else defaults.
+    """
+    from orchestrator.models import RiskWeights
+
+    config = store.get_config_by_position(job_position)
+    if config:
+        return {"is_custom": True, "weights": config.weights.model_dump()}
+    return {"is_custom": False, "weights": RiskWeights().model_dump()}
 
 
 @router.post(

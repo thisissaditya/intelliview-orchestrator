@@ -35,14 +35,19 @@ class LoadBalancer:
     Implements load balancing for task distribution across worker nodes
     """
 
-    def __init__(self, strategy: BalancingStrategy = BalancingStrategy.LEAST_LOADED):
+    def __init__(
+        self,
+        strategy: BalancingStrategy = BalancingStrategy.LEAST_LOADED,
+        worker_registry=None,
+    ):
         """
         Initialize load balancer
 
         Args:
             strategy: Load balancing strategy to use
+            worker_registry: Optional shared WorkerRegistry instance
         """
-        self.worker_registry = WorkerRegistry()
+        self.worker_registry = worker_registry or WorkerRegistry()
         self.strategy = strategy
         self.round_robin_index = 0
         self._wrr_weights_cache = {}

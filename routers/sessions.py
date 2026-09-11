@@ -14,6 +14,7 @@ from database.db import get_db
 from database.models import Candidate, InterviewSession
 from metrics.prometheus_metrics import SESSIONS_ACTIVE, SESSIONS_CREATED
 from orchestrator import http_cache
+from orchestrator.candidate_manager import candidate_manager
 from orchestrator.scheduler import TaskPriority
 from orchestrator.security import get_current_user, require_role
 
@@ -219,6 +220,227 @@ def _build_risk_report_pdf(report: dict) -> Response:
     )
 
 
+def _build_session_report_pdf(session_data: dict) -> Response:
+    """Generate a comprehensive PDF report for a session using reportlab."""
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import inch
+        from reportlab.platypus import (
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+    except ImportError:
+        # Fallback to simple canvas if platypus is not available
+        return _build_risk_report_pdf(session_data)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    story = []
+    styles = getSampleStyleSheet()
+
+    # Title
+    title_style = ParagraphStyle(
+        "CustomTitle",
+        parent=styles["Heading1"],
+        fontSize=20,
+        textColor=colors.HexColor("#1a1a1a"),
+        spaceAfter=30,
+        alignment=TA_CENTER,
+    )
+    story.append(Paragraph("Interview Session Report", title_style))
+    story.append(Spacer(1, 0.2 * inch))
+
+    # Session Information
+    heading_style = ParagraphStyle(
+        "SectionHeading",
+        parent=styles["Heading2"],
+        fontSize=14,
+        textColor=colors.HexColor("#333333"),
+        spaceAfter=10,
+    )
+    story.append(Paragraph("Session Information", heading_style))
+
+    session_info = [
+        ["Session ID:", session_data.get("session_id", "N/A")],
+        ["Candidate ID:", session_data.get("candidate_id", "N/A")],
+        ["Status:", session_data.get("status", "N/A")],
+        ["Risk Score:", str(session_data.get("risk_score", "N/A"))],
+        ["Assigned Node:", session_data.get("assigned_node", "N/A")],
+        ["Created:", str(session_data.get("created_at", "N/A"))],
+        ["Started:", str(session_data.get("start_time", "N/A"))],
+        ["Ended:", str(session_data.get("end_time", "N/A"))],
+        ["Updated:", str(session_data.get("updated_at", "N/A"))],
+    ]
+
+    session_table = Table(session_info, colWidths=[2 * inch, 4 * inch])
+    session_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f0f0f0")),
+                ("TEXTCOLOR", (0, 0), (-1, -1), colors.black),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ]
+        )
+    )
+    story.append(session_table)
+    story.append(Spacer(1, 0.3 * inch))
+
+    # Video Analysis
+    if session_data.get("video_analysis"):
+        story.append(Paragraph("Video Analysis", heading_style))
+        video_data = session_data["video_analysis"]
+
+        video_info = []
+        if video_data.get("confidence_score") is not None:
+            video_info.append(
+                ["Confidence Score:", f"{video_data['confidence_score'] * 100:.1f}%"]
+            )
+        if video_data.get("facial_expressions"):
+            try:
+                expressions = ", ".join(
+                    f"{k} ({v*100:.0f}%)"
+                    for k, v in sorted(
+                        video_data["facial_expressions"].items(),
+                        key=lambda x: x[1],
+                        reverse=True,
+                    )[:3]
+                )
+                video_info.append(["Facial Expressions:", expressions])
+            except Exception:
+                video_info.append(
+                    [
+                        "Facial Expressions:",
+                        str(video_data.get("facial_expressions", "N/A")),
+                    ]
+                )
+
+        if video_info:
+            video_table = Table(video_info, colWidths=[2 * inch, 4 * inch])
+            video_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f0f0f0")),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 10),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ]
+                )
+            )
+            story.append(video_table)
+            story.append(Spacer(1, 0.2 * inch))
+
+    # Audio Analysis
+    if session_data.get("audio_analysis"):
+        story.append(Paragraph("Audio Analysis", heading_style))
+        audio_data = session_data["audio_analysis"]
+
+        audio_info = []
+        if audio_data.get("sentiment"):
+            audio_info.append(["Sentiment:", str(audio_data["sentiment"]).capitalize()])
+        if audio_data.get("clarity_score") is not None:
+            audio_info.append(
+                ["Clarity Score:", f"{audio_data['clarity_score'] * 100:.1f}%"]
+            )
+        if audio_data.get("speech_pace"):
+            audio_info.append(["Speech Pace:", f"{audio_data['speech_pace']} wpm"])
+        if audio_data.get("filler_words") is not None:
+            audio_info.append(["Filler Words:", str(audio_data["filler_words"])])
+
+        if audio_info:
+            audio_table = Table(audio_info, colWidths=[2 * inch, 4 * inch])
+            audio_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f0f0f0")),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 10),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ]
+                )
+            )
+            story.append(audio_table)
+            story.append(Spacer(1, 0.2 * inch))
+
+    # AI Feedback
+    if session_data.get("ai_feedback"):
+        story.append(Paragraph("AI Feedback", heading_style))
+        try:
+            feedback_text = Paragraph(
+                str(session_data["ai_feedback"]), styles["Normal"]
+            )
+            story.append(feedback_text)
+            story.append(Spacer(1, 0.2 * inch))
+        except Exception:
+            # Fallback for problematic text
+            story.append(
+                Paragraph(
+                    "Feedback available but could not be rendered.", styles["Normal"]
+                )
+            )
+            story.append(Spacer(1, 0.2 * inch))
+
+    # Evaluation Analysis (if available)
+    if session_data.get("evaluation_analysis"):
+        story.append(Paragraph("Evaluation Analysis", heading_style))
+        eval_data = session_data["evaluation_analysis"]
+
+        eval_info = []
+        if eval_data.get("quality") is not None:
+            eval_info.append(["Quality:", f"{eval_data['quality']:.2f}"])
+        if eval_data.get("accuracy") is not None:
+            eval_info.append(["Accuracy:", f"{eval_data['accuracy']:.2f}"])
+        if eval_data.get("clarity") is not None:
+            eval_info.append(["Clarity:", f"{eval_data['clarity']:.2f}"])
+
+        if eval_info:
+            eval_table = Table(eval_info, colWidths=[2 * inch, 4 * inch])
+            eval_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f0f0f0")),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 10),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ]
+                )
+            )
+            story.append(eval_table)
+            story.append(Spacer(1, 0.2 * inch))
+
+    # Build PDF
+    try:
+        doc.build(story)
+    except Exception as e:
+        logger.warning(
+            f"Error building PDF with platypus, falling back to simple PDF: {e}"
+        )
+        return _build_risk_report_pdf(session_data)
+
+    buffer.seek(0)
+
+    return Response(
+        content=buffer.read(),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=session_{session_data.get('session_id', 'report')}.pdf"
+        },
+    )
+
+
 def create_session_routes(
     session_manager,
     session_tracker,
@@ -282,6 +504,14 @@ def create_session_routes(
                 candidate_name=request.candidate_name,
                 position=request.position,
             )
+
+            # Record practice streak
+            try:
+                candidate_manager.record_practice(request.candidate_id)
+            except Exception as e:
+                logger.error(
+                    f"Failed to record practice streak for candidate {request.candidate_id}: {e}"
+                )
 
             # Increment total interview sessions created
             SESSIONS_CREATED.inc()
@@ -373,6 +603,49 @@ def create_session_routes(
             logger.error(f"Error fetching session status: {e!s}")
             raise HTTPException(
                 status_code=500, detail=f"Error fetching session: {e!s}"
+            )
+
+    @router.get("/sessions/{session_id}/report/pdf")
+    async def get_session_pdf_report(
+        session_id: str,
+        session_db: Session = Depends(get_db),
+    ):
+        """
+        Generate and download a PDF report for a session.
+
+        This endpoint generates a comprehensive PDF report including:
+        - Session information (ID, candidate, status, risk score)
+        - Timestamps and processing details
+        - Video analysis results
+        - Audio analysis results
+        - AI feedback
+
+        Args:
+            session_id: Interview session identifier
+
+        Returns:
+            PDF file download
+
+        Raises:
+            HTTPException: If session not found or PDF generation fails
+        """
+        try:
+            logger.info(f"Generating PDF report for session {session_id}")
+
+            session_data = session_manager.get_session(session_id)
+
+            if not session_data:
+                logger.warning(f"Session {session_id} not found for PDF export")
+                raise HTTPException(status_code=404, detail="Session not found")
+
+            return _build_session_report_pdf(session_data)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error generating PDF report for {session_id}: {e!s}")
+            raise HTTPException(
+                status_code=500, detail=f"Error generating PDF report: {e!s}"
             )
 
     @router.get(
@@ -719,26 +992,66 @@ def create_session_routes(
 
     @router.get("/interviews")
     async def list_interviews(
+        page: int = 1,
         limit: int = 100,
-        offset: int = 0,
+        sort_by: str = "date",
         status: str | None = None,
         session_db: Session = Depends(get_db),
     ):
         """
-        List interview sessions, newest first.
+        List interview sessions with pagination and sorting.
         """
 
+        # Validate page
+        if page < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="page must be greater than or equal to 1",
+            )
+
+        # Validate limit
+        if limit < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="limit must be greater than or equal to 1",
+            )
+
+        if limit > 1000:
+            raise HTTPException(
+                status_code=400,
+                detail="limit must be less than or equal to 1000",
+            )
+
+        # Validate sorting option
+        allowed_sort_fields = {"date", "risk_score", "status"}
+
+        if sort_by not in allowed_sort_fields:
+            raise HTTPException(
+                status_code=400,
+                detail="sort_by must be one of: date, risk_score, status",
+            )
+
+        # Base query
         stmt = select(InterviewSession)
 
+        # Existing status filter
         if status:
             stmt = stmt.where(InterviewSession.status == status.upper())
 
-        stmt = (
-            stmt.order_by(InterviewSession.created_at.desc().nullslast())
-            .offset(offset)
-            .limit(limit)
-        )
+        # Sorting
+        if sort_by == "date":
+            stmt = stmt.order_by(InterviewSession.created_at.desc().nullslast())
+        elif sort_by == "risk_score":
+            stmt = stmt.order_by(InterviewSession.risk_score.desc().nullslast())
+        elif sort_by == "status":
+            stmt = stmt.order_by(InterviewSession.status.asc().nullslast())
+
+        # Pagination
+        offset = (page - 1) * limit
+        stmt = stmt.offset(offset).limit(limit)
+
         rows = session_db.execute(stmt).scalars().all()
+
         return {
             "total_count": len(rows),
             "sessions": [
@@ -758,6 +1071,98 @@ def create_session_routes(
         }
 
     # ========== Interview Q&A Endpoints ==========
+    async def _submit_answer_for_question(
+        session_id: str,
+        question_id: str,
+        answer_text: str,
+        *,
+        auto_submitted: bool = False,
+    ) -> dict[str, Any]:
+        """Process and persist an answer, including timeout auto-submissions."""
+        session_data = session_manager.get_session(session_id)
+        if not session_data:
+            logger.warning(
+                "Cannot submit answer: session %s not found",
+                session_id,
+            )
+            return {}
+
+        question = question_bank.get_question(question_id)
+        if not question:
+            logger.warning(
+                "Cannot submit answer: question %s not found",
+                question_id,
+            )
+            return {}
+
+        # Prevent duplicate submissions for the same question.
+        answers = session_data.get("answers_provided", [])
+        if any(a.get("question_id") == question_id for a in answers):
+            logger.info(
+                "Question %s already answered for session %s; "
+                "ignoring duplicate submission",
+                question_id,
+                session_id,
+            )
+            return session_data
+
+        from workers.evaluation_pipeline import score_answer
+
+        ai_result = score_answer(question["text"], answer_text)
+        score = ai_result["score"]
+
+        question_bank.record_usage(question_id, score=score)
+
+        questions_asked = session_data.get("questions_asked", [])
+        questions_asked.append(
+            {
+                "question_id": question_id,
+                "text": question["text"],
+                "category": question["category"],
+            }
+        )
+
+        answers.append(
+            {
+                "question_id": question_id,
+                "answer_text": answer_text,
+                "score": score,
+                "auto_submitted": auto_submitted,
+            }
+        )
+
+        feedbacks = session_data.get("feedback_generated", [])
+        feedbacks.append(
+            {
+                "question_id": question_id,
+                "score": score,
+                "reasoning": ai_result["reasoning"],
+                "strengths": ai_result["strengths"],
+                "gaps": ai_result["gaps"],
+                "auto_submitted": auto_submitted,
+            }
+        )
+
+        scores = [a.get("score") for a in answers if a.get("score") is not None]
+        overall_score = sum(scores) / len(scores) if scores else None
+
+        session_data["questions_asked"] = questions_asked
+        session_data["answers_provided"] = answers
+        session_data["feedback_generated"] = feedbacks
+        session_data["overall_score"] = overall_score
+
+        session_manager.state_sync.set_session_state(
+            session_id,
+            session_data,
+        )
+
+        return {
+            "session_data": session_data,
+            "question": question,
+            "score": score,
+            "feedback": ai_result["reasoning"],
+            "overall_score": overall_score,
+        }
 
     @router.post("/interviews/ask-question")
     async def ask_question(
@@ -782,6 +1187,24 @@ def create_session_routes(
                     status_code=404, detail="No more questions available"
                 )
 
+            # Start timeout timer for this question
+            async def handle_question_timeout(
+                session_id: str,
+                question_id: str,
+            ) -> None:
+                await _submit_answer_for_question(
+                    session_id,
+                    question_id,
+                    "",
+                    auto_submitted=True,
+                )
+
+            session_manager.start_question_timer(
+                request.session_id,
+                question["question_id"],
+                handle_question_timeout,
+            )
+
             return AskQuestionResponse(
                 session_id=request.session_id,
                 question_id=question["question_id"],
@@ -800,76 +1223,44 @@ def create_session_routes(
         request: SubmitAnswerRequest,
         session_db: Session = Depends(get_db),
     ):
-        """Submit an answer and get feedback"""
+        """Submit an answer and get feedback."""
         try:
-            session_data = session_manager.get_session(request.session_id)
-            if not session_data:
-                raise HTTPException(status_code=404, detail="Session not found")
-
-            question = question_bank.get_question(request.question_id)
-            if not question:
-                raise HTTPException(status_code=404, detail="Question not found")
-
-            question_bank.record_usage(request.question_id, score=request.score)
-
-            from workers.evaluation_pipeline import score_answer
-
-            ai_result = score_answer(question["text"], request.answer_text)
-            score = ai_result["score"]
-            feedback = ai_result["reasoning"]
-
-            questions_asked = session_data.get("questions_asked", [])
-            questions_asked.append(
-                {
-                    "question_id": request.question_id,
-                    "text": question["text"],
-                    "category": question["category"],
-                }
+            session_manager.cancel_question_timer(
+                request.session_id,
+                request.question_id,
             )
 
-            answers = session_data.get("answers_provided", [])
-            answers.append(
-                {
-                    "question_id": request.question_id,
-                    "answer_text": request.answer_text,
-                    "score": score,
-                }
-            )
-            feedbacks = session_data.get("feedback_generated", [])
-            feedbacks.append(
-                {
-                    "question_id": request.question_id,
-                    "score": score,
-                    "reasoning": ai_result["reasoning"],
-                    "strengths": ai_result["strengths"],
-                    "gaps": ai_result["gaps"],
-                }
+            result = await _submit_answer_for_question(
+                request.session_id,
+                request.question_id,
+                request.answer_text,
             )
 
-            scores = [a.get("score") for a in answers if a.get("score") is not None]
-            overall_score = sum(scores) / len(scores) if scores else None
+            if not result:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Session or question not found",
+                )
 
-            session_data["questions_asked"] = questions_asked
-            session_data["answers_provided"] = answers
-            session_data["feedback_generated"] = feedbacks
-            session_data["overall_score"] = overall_score
-            session_manager.state_sync.set_session_state(
-                request.session_id, session_data
-            )
+            session_data = result["session_data"]
 
             return SubmitAnswerResponse(
                 session_id=request.session_id,
                 question_id=request.question_id,
-                feedback=feedback,
-                score=score,
-                questions_asked=len(questions_asked),
-                overall_score=overall_score,
+                feedback=result["feedback"],
+                score=result["score"],
+                questions_asked=len(session_data.get("questions_asked", [])),
+                overall_score=result["overall_score"],
             )
+
         except HTTPException:
             raise
         except Exception as e:
             logger.error(f"Error submitting answer: {e!s}")
-            raise HTTPException(status_code=500, detail="Error submitting answer")
+            raise HTTPException(
+                status_code=500,
+                detail="Error submitting answer",
+            )
 
     # ========== Fault Tolerance & Recovery Endpoints ==========
 
@@ -892,7 +1283,7 @@ def create_session_routes(
 
             return {
                 "count": len(failed),
-                "failed_sessions": failed,
+                "sessions": failed,  # Changed from "failed_sessions" to "sessions" for consistency
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         except Exception as e:

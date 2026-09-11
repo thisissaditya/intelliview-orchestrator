@@ -424,3 +424,111 @@ def test_sync_state_to_db_handles_database_exception():
 
     db_session.rollback.assert_called_once()
     db_session.close.assert_called_once()
+
+
+# ============================================================================
+# Concurrency & Conflict Resolution Tests (Task Enhancement)
+# ============================================================================
+
+from concurrent.futures import ThreadPoolExecutor
+
+
+def test_state_synchronizer_last_write_wins_sequential_cache_updates():
+    """Verify that rapid sequential updates to the same session overwrite prior state (LWW)."""
+    redis = FakeRedis()
+    sync = StateSynchronizer.__new__(StateSynchronizer)
+    sync.redis_client = redis
+
+    session_id = "s_lww"
+    update_1 = {"session_id": session_id, "status": "QUEUED", "risk_score": 0.1}
+    update_2 = {"session_id": session_id, "status": "PROCESSING", "risk_score": 0.5}
+
+    assert sync.set_session_state(session_id, update_1) is True
+    assert sync.set_session_state(session_id, update_2) is True
+
+    retrieved = sync.get_session_state(session_id)
+    assert retrieved["status"] == "PROCESSING"
+    assert retrieved["risk_score"] == 0.5
+
+
+def test_state_synchronizer_concurrent_racing_cache_updates():
+    """Verify concurrent thread execution updating state does not cause data corruption."""
+    redis = FakeRedis()
+    sync = StateSynchronizer.__new__(StateSynchronizer)
+    sync.redis_client = redis
+
+    session_id = "s_race"
+
+    def execute_update(index: int):
+        data = {
+            "session_id": session_id,
+            "status": f"STATUS_{index}",
+            "risk_score": index * 0.1,
+        }
+        return sync.set_session_state(session_id, data)
+
+    # Race 10 concurrent threads updating the same session key
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(execute_update, i) for i in range(10)]
+        results = [f.result() for f in futures]
+
+    assert all(results) is True
+    final_state = sync.get_session_state(session_id)
+    assert final_state is not None
+    assert final_state["status"].startswith("STATUS_")
+
+
+def test_sync_state_to_db_last_write_wins_on_same_field():
+    """Verify that successive DB syncs targeting the same field overwrite with the latest value."""
+    interview = MagicMock()
+    interview.status = "QUEUED"
+
+    db_session = MagicMock()
+    db_session.execute.return_value.scalar_one_or_none.return_value = interview
+
+    sync = StateSynchronizer.__new__(StateSynchronizer)
+
+    with patch("database.db.SessionLocal", return_value=db_session):
+        # First sync sets status to PROCESSING
+        assert sync.sync_state_to_db("s1", {"status": "PROCESSING"}) is True
+        # Second sync overwrites status to EVALUATING (LWW)
+        assert sync.sync_state_to_db("s1", {"status": "EVALUATING"}) is True
+
+    assert interview.status == "EVALUATING"
+    assert db_session.commit.call_count == 2
+    assert db_session.close.call_count == 2
+
+
+def test_sync_state_to_db_partial_field_updates_preserve_existing_state():
+    """Verify sync updates only provided fields without clearing unmentioned fields."""
+    interview = MagicMock()
+    interview.status = "PROCESSING"
+    interview.risk_score = 0.2
+
+    db_session = MagicMock()
+    db_session.execute.return_value.scalar_one_or_none.return_value = interview
+
+    sync = StateSynchronizer.__new__(StateSynchronizer)
+
+    with patch("database.db.SessionLocal", return_value=db_session):
+        # Update only risk_score; status should not be modified
+        assert sync.sync_state_to_db("s1", {"risk_score": 0.8}) is True
+
+    assert interview.status == "PROCESSING"
+    assert interview.risk_score == 0.8
+
+
+def test_sync_state_to_db_handles_nonexistent_session_conflict():
+    """Verify conflict handling returns False when trying to sync a session missing from DB."""
+    db_session = MagicMock()
+    db_session.execute.return_value.scalar_one_or_none.return_value = None
+
+    sync = StateSynchronizer.__new__(StateSynchronizer)
+
+    with patch("database.db.SessionLocal", return_value=db_session):
+        assert (
+            sync.sync_state_to_db("missing_session", {"status": "COMPLETED"}) is False
+        )
+
+    db_session.commit.assert_not_called()
+    db_session.close.assert_called_once()

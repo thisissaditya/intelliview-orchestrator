@@ -1,15 +1,26 @@
+try:
+    import cv2
+except ImportError:
+    import types
+
+    cv2 = types.ModuleType("cv2")
+    cv2.imdecode = lambda *args, **kwargs: None
+    cv2.imread = lambda *args, **kwargs: None
+    cv2.cvtColor = lambda *args, **kwargs: None
+    cv2.COLOR_BGR2RGB = 4
+    cv2.IMREAD_COLOR = 1
 import logging
 import time
 from typing import Any
 
 try:
-    import cv2
     import mediapipe as mp
 
     HAS_MEDIAPIPE = True
-
 except ImportError:
+    mp = None
     HAS_MEDIAPIPE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,8 +72,11 @@ def detect_faces_in_frame(
         elif frame_path:
             image = cv2.imread(frame_path)
         else:
+            logger.warning("No frame bytes or frame path provided")
             return None
+
         if image is None:
+            logger.warning("Unable to decode video frame")
             return None
 
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)

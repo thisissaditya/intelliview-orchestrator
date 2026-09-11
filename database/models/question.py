@@ -1,6 +1,6 @@
 """Question ORM model."""
 
-from sqlalchemy import JSON, Column, DateTime, Float, Integer, String
+from sqlalchemy import Column, DateTime, Float, Integer, String
 
 from database.models._base import Base, utcnow
 
@@ -14,7 +14,7 @@ class Question(Base):
     text = Column(String(1000), nullable=False)
     category = Column(String(50), nullable=False, index=True)
     difficulty = Column(String(20), nullable=False, default="medium")
-    tags = Column(JSON, nullable=True, default=list)
+    tag = Column(String(50), nullable=True, index=True)
     usage_count = Column(Integer, nullable=False, default=0, index=True)
     avg_score = Column(Float, nullable=True, index=True)
 
@@ -25,5 +25,6 @@ class Question(Base):
         return (
             f"<Question(question_id='{self.question_id}', "
             f"category='{self.category}', "
-            f"difficulty='{self.difficulty}')>"
+            f"difficulty='{self.difficulty}', "
+            f"tag='{self.tag}')>"
         )

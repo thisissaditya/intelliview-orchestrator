@@ -1,5 +1,5 @@
 "use client";
-import { memo } from "react";
+import { memo, useState } from "react";
 import Button from './Button';
 import { Dialog, DialogContent, DialogTitle } from "@/components/Dialog";
 import Pipeline from "@/components/Pipeline";
@@ -7,13 +7,17 @@ import { StatusBadge, Badge } from "@/components/Badge";
 import { Shimmer } from "@/components/Shimmer";
 import { useAppStore } from "@/lib/store";
 import { formatDate, riskColor, formatRelative } from "@/lib/utils";
-import { Activity, Calendar, Cpu, Hash, RefreshCw, User, Film, Mic, MessageSquare, Clock } from "lucide-react";
+import { Activity, Calendar, Cpu, Hash, RefreshCw, User, Film, Mic, MessageSquare, Clock, FileDown } from "lucide-react";
 import useSWR from "swr";
 import { MomentTimeline } from "@/hooks/useMomentTracking";
+import { generateSessionPDF, requestBackendPDF } from "@/lib/export";
+import { toast } from "@/lib/toast";
 
 function SessionDetailImpl({ sessionId, onClose }) {
   const token = useAppStore((s) => s.token);
   const open = sessionId !== null;
+  const [exportingPDF, setExportingPDF] = useState(false);
+  
   const { data, error, isLoading, mutate } = useSWR(
     open && token ? `/session-status/${sessionId}` : null,
     { refreshInterval: 2000 },
@@ -23,6 +27,28 @@ function SessionDetailImpl({ sessionId, onClose }) {
     open && token ? `/moments/${sessionId}` : null,
     { refreshInterval: 5000 },
   );
+
+  const handleExportPDF = async () => {
+    if (!data) return;
+    
+    setExportingPDF(true);
+    try {
+      // Try backend PDF generation first for complex reports
+      await requestBackendPDF(sessionId);
+      toast.success("Complex report generated successfully");
+    } catch (backendError) {
+      // Fallback to browser-based PDF generation
+      try {
+        await generateSessionPDF(data);
+        toast.success("Basic report generated successfully");
+      } catch (error) {
+        toast.error("Failed to export PDF");
+      }
+    } finally {
+      setExportingPDF(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent onClose={onClose} className="max-w-2xl">
@@ -34,6 +60,15 @@ function SessionDetailImpl({ sessionId, onClose }) {
             </div>
             <div className="flex items-center gap-2">
               {data && <StatusBadge status={data.status} />}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleExportPDF}
+                aria-label="Export PDF"
+                disabled={exportingPDF || !data}
+              >
+                <FileDown size={12} />
+              </Button>
              <Button
                  variant="ghost"
                 size="icon"

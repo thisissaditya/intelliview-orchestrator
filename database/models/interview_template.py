@@ -21,7 +21,7 @@ class InterviewTemplate(Base):
     difficulty_distribution = Column(JSON, nullable=True, default=dict)
     usage_count = Column(Integer, nullable=False, default=0, index=True)
     success_rate = Column(Float, nullable=True, index=True)
-
+    version = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 

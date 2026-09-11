@@ -79,10 +79,63 @@ class SessionManager:
     # Timeout thresholds (in seconds)
     PROCESSING_TIMEOUT = 1800  # 30 minutes
     QUEUED_TIMEOUT = 3600  # 60 minutes
+    QUESTION_ANSWER_TIMEOUT = 60  # 60 seconds
 
     def __init__(self):
         """Initialize session manager with state synchronizer"""
         self.state_sync = StateSynchronizer()
+        self._question_timers: dict[tuple[str, str], asyncio.Task] = {}
+
+    def start_question_timer(
+        self,
+        session_id: str,
+        question_id: str,
+        on_timeout,
+    ) -> None:
+        """Start a timer for an unanswered interview question."""
+        self.cancel_question_timer(session_id, question_id)
+
+        async def _timeout() -> None:
+            try:
+                await asyncio.sleep(self.QUESTION_ANSWER_TIMEOUT)
+
+                logger.info(
+                    "Question %s timed out for session %s",
+                    question_id,
+                    session_id,
+                )
+
+                await on_timeout(session_id, question_id)
+
+            except asyncio.CancelledError:
+                logger.debug(
+                    "Question timer cancelled for session %s, question %s",
+                    session_id,
+                    question_id,
+                )
+                raise
+            except Exception:
+                logger.exception(
+                    "Error handling question timeout for session %s, question %s",
+                    session_id,
+                    question_id,
+                )
+            finally:
+                self._question_timers.pop((session_id, question_id), None)
+
+        task = asyncio.create_task(_timeout())
+        self._question_timers[(session_id, question_id)] = task
+
+    def cancel_question_timer(
+        self,
+        session_id: str,
+        question_id: str,
+    ) -> None:
+        """Cancel the timer for an answered interview question."""
+        task = self._question_timers.pop((session_id, question_id), None)
+
+        if task and not task.done():
+            task.cancel()
 
     def create_session(
         self,
@@ -237,7 +290,7 @@ class SessionManager:
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         """
-        Retrieve session details
+        Retrieve session details.
 
         Args:
             session_id: Session identifier
@@ -245,68 +298,69 @@ class SessionManager:
         Returns:
             dict: Session details or None if not found
         """
+        session_db = None
+
         try:
-            # Try to get from Redis cache first (fast path)
+            # Try Redis cache first
             session_data = self.state_sync.get_session_state(session_id)
+
             if session_data:
-                logger.debug(f"Retrieved session {session_id} from cache")
+                logger.debug("Retrieved session %s from cache", session_id)
                 return session_data
 
             # Fall back to database
             session_db = SessionLocal()
-            try:
-                interview = session_db.execute(
-                    select(InterviewSession).where(
-                        InterviewSession.session_id == session_id
-                    )
-                ).scalar_one_or_none()
 
-                if not interview:
-                    logger.warning(f"Session {session_id} not found")
-                    return None
+            interview = session_db.execute(
+                select(InterviewSession).where(
+                    InterviewSession.session_id == session_id
+                )
+            ).scalar_one_or_none()
 
-                # Convert to dict for consistency
-                session_data = {
-                    "session_id": interview.session_id,
-                    "candidate_id": interview.candidate_id,
-                    "status": interview.status,
-                    "risk_score": interview.risk_score,
-                    "assigned_node": interview.assigned_node,
-                    "start_time": (
-                        interview.start_time.isoformat()
-                        if interview.start_time
-                        else None
-                    ),
-                    "end_time": (
-                        interview.end_time.isoformat() if interview.end_time else None
-                    ),
-                    "created_at": (
-                        interview.created_at.isoformat()
-                        if interview.created_at
-                        else None
-                    ),
-                    "updated_at": (
-                        interview.updated_at.isoformat()
-                        if interview.updated_at
-                        else None
-                    ),
-                    "video_analysis": interview.video_analysis,
-                    "audio_analysis": interview.audio_analysis,
-                    "evaluation_analysis": interview.evaluation_analysis,
-                }
+            if not interview:
+                logger.warning("Session %s not found", session_id)
+                return None
 
-                # Update Redis cache for next lookup
-                self.state_sync.set_session_state(session_id, session_data)
+            session_data = {
+                "session_id": interview.session_id,
+                "candidate_id": interview.candidate_id,
+                "status": interview.status,
+                "risk_score": interview.risk_score,
+                "assigned_node": interview.assigned_node,
+                "start_time": (
+                    interview.start_time.isoformat() if interview.start_time else None
+                ),
+                "end_time": (
+                    interview.end_time.isoformat() if interview.end_time else None
+                ),
+                "created_at": (
+                    interview.created_at.isoformat() if interview.created_at else None
+                ),
+                "updated_at": (
+                    interview.updated_at.isoformat() if interview.updated_at else None
+                ),
+                "video_analysis": interview.video_analysis,
+                "audio_analysis": interview.audio_analysis,
+                "evaluation_analysis": interview.evaluation_analysis,
+            }
 
-                logger.debug(f"Retrieved session {session_id} from database")
-                return session_data
+            # Repopulate Redis cache
+            self.state_sync.set_session_state(session_id, session_data)
 
-            finally:
-                session_db.close()
+            logger.debug("Retrieved session %s from database", session_id)
+            return session_data
 
         except Exception:
-            session_db.rollback()
+            logger.exception("Error retrieving session %s", session_id)
+
+            if session_db is not None:
+                session_db.rollback()
+
             return None
+
+        finally:
+            if session_db is not None:
+                session_db.close()
 
     def mark_session_failed(self, session_id: str, error_message: str) -> bool:
         """
@@ -325,13 +379,19 @@ class SessionManager:
             session_id, self.FAILED, {"error_message": error_message}
         )
 
-    def mark_session_completed(self, session_id: str, risk_score: float) -> bool:
-
+    def mark_session_completed(
+        self,
+        session_id: str,
+        risk_score: float,
+    ) -> bool:
         logger.info(
-            f"Marking session {session_id} as completed with risk score {risk_score}"
+            "Marking session %s as completed with risk score %s",
+            session_id,
+            risk_score,
         )
 
         session_db = SessionLocal()
+
         try:
             interview = session_db.execute(
                 select(InterviewSession).where(
@@ -340,30 +400,55 @@ class SessionManager:
             ).scalar_one_or_none()
 
             if not interview:
+                logger.warning("Session %s not found", session_id)
+                return False
+
+            # Validate state transition before marking as completed
+            if not self._is_valid_transition(
+                interview.status,
+                self.COMPLETED,
+            ):
+                logger.warning(
+                    "Invalid state transition: %s -> %s for session %s",
+                    interview.status,
+                    self.COMPLETED,
+                    session_id,
+                )
                 return False
 
             interview.status = self.COMPLETED
             interview.risk_score = risk_score
             interview.end_time = _utcnow()
             interview.updated_at = _utcnow()
+
             session_db.commit()
 
             # Update Redis (skip if circuit breaker is open)
             if not is_circuit_open():
                 session_data = self.state_sync.get_session_state(session_id)
+
                 if session_data:
                     session_data["status"] = self.COMPLETED
                     session_data["risk_score"] = risk_score
-                    session_data["end_time"] = _utcnow().isoformat()
-                    session_data["updated_at"] = _utcnow().isoformat()
-                    self.state_sync.set_session_state(session_id, session_data)
+                    session_data["end_time"] = interview.end_time.isoformat()
+                    session_data["updated_at"] = interview.updated_at.isoformat()
 
-            logger.info(f"Session {session_id} marked as completed")
+                    self.state_sync.set_session_state(
+                        session_id,
+                        session_data,
+                    )
+
+            logger.info("Session %s marked as completed", session_id)
             return True
 
         except Exception:
             session_db.rollback()
+            logger.exception(
+                "Error completing session %s",
+                session_id,
+            )
             return False
+
         finally:
             session_db.close()
 

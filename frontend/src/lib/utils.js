@@ -1,6 +1,7 @@
 import { clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
 function cn(...inputs) {
-  return clsx(inputs);
+  return twMerge(clsx(inputs));
 }
 function formatDate(iso) {
   if (!iso) return "\u2014";
@@ -67,3 +68,4 @@ export {
   riskColor,
   statusColor
 };
+

@@ -23,6 +23,7 @@ import Button from "@/components/Button";
 import { Badge } from "@/components/Badge";
 import { Skeleton } from "@/components/States";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui";
+import AddToCalendarButton from "@/components/AddToCalendarButton";
 
 const fetcher = (url) => fetch(url).then((res) => res.json());
 
@@ -533,6 +534,17 @@ export default function SchedulePage() {
                       </Td>
                       <Td>
                         <div className="flex items-center gap-1.5">
+                          {s.status === "scheduled" && (
+                            <AddToCalendarButton
+                              title={`Interview: ${s.candidate_name}`}
+                              start={s.scheduled_at}
+                              durationMinutes={60}
+                              interviewerName={s.interviewer_id}
+                              candidateName={s.candidate_name}
+                              notes={s.notes}
+                              size="sm"
+                            />
+                          )}
                           {s.status === "scheduled" && (
                             <>
                               <button

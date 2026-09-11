@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -198,6 +199,19 @@ class Candidate(Base):
     demographics = Column(JSON, nullable=True, default=dict)
     avg_score = Column(Float, nullable=True, index=True)
     total_interviews = Column(Integer, nullable=False, default=0, index=True)
+
+    # Verification features
+    is_verified = Column(Boolean, default=False, nullable=False)
+    verification_token = Column(String(50), nullable=True)
+
+    # Streak & Badges features
+    practice_streak = Column(Integer, default=0, nullable=False)
+    last_practice_date = Column(DateTime(timezone=True), nullable=True)
+    badges = Column(JSON, nullable=True, default=list)
+
+    # Search & Filtering status/role
+    status = Column(String(50), default="unverified", nullable=True)
+    role = Column(String(100), nullable=True)
 
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = Column(

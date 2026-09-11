@@ -1,9 +1,9 @@
 """Admin/ops routes: cache management, load-balancing strategy, moment tracking, dashboard HTML."""
 
 import logging
-import os
 from datetime import datetime, timezone
 
+import anyio
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -286,24 +286,28 @@ def create_admin_routes(state_sync, load_balancer) -> APIRouter:
             HTML content of the dashboard
         """
         try:
-            dashboard_path = os.path.join(
-                os.path.dirname(__file__), "..", "monitoring", "dashboard.html"
+            dashboard_path = (
+                anyio.Path(__file__).parent.parent / "monitoring" / "dashboard.html"
             )
 
-            if os.path.exists(dashboard_path):
-                with open(dashboard_path, encoding="utf-8") as f:
-                    html_content = f.read()
+            if await dashboard_path.exists():
+                html_content = await dashboard_path.read_text(encoding="utf-8")
 
                 from fastapi.responses import HTMLResponse
 
                 return HTMLResponse(content=html_content)
-            raise HTTPException(status_code=404, detail="Dashboard HTML not found")
+
+            raise HTTPException(
+                status_code=404,
+                detail="Dashboard HTML not found",
+            )
         except HTTPException:
             raise
         except Exception as e:
             logger.error(f"Error serving dashboard: {e!s}")
             raise HTTPException(
-                status_code=500, detail=f"Error serving dashboard: {e!s}"
+                status_code=500,
+                detail=f"Error serving dashboard: {e!s}",
             )
 
     return router

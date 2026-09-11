@@ -11,16 +11,21 @@ Endpoints:
 - GET /metrics/failures - Failure metrics
 - GET /metrics/retries - Retry statistics
 - GET /metrics/performance - Performance metrics
+- GET /metrics/summary - Lightweight summary metrics (active sessions, healthy workers, today's interviews)
+- GET /metrics/dashboard - Comprehensive dashboard summary
 - WebSocket /ws/metrics - Real-time updates
 """
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from sqlalchemy import func, select
 
 from config import API_TOKEN
+from database.db import SessionLocal
+from database.models import InterviewSession
 from orchestrator import http_cache
 
 logger = logging.getLogger(__name__)
@@ -258,6 +263,119 @@ def create_dashboard_routes(
             }
         except Exception as e:
             logger.error(f"Error fetching performance metrics: {e!s}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+    # ========== Lightweight Summary Endpoint ==========
+
+    @router.get("/metrics/summary")
+    @http_cache.cached("monitoring.metrics.summary", ttl=2)
+    async def get_summary_metrics():
+        """
+        Get lightweight summary metrics for dashboard status widgets.
+
+        Returns:
+            dict: Key dashboard statistics (active sessions, healthy workers, today's interviews)
+        """
+        try:
+            logger.debug("Fetching dashboard summary metrics")
+
+            # 1. Active sessions
+            active_sessions = 0
+            try:
+                if session_tracker and hasattr(
+                    session_tracker, "get_session_statistics"
+                ):
+                    stats = session_tracker.get_session_statistics()
+                    active_sessions = stats.get("active_sessions", 0)
+                elif session_tracker and hasattr(
+                    session_tracker, "get_active_sessions"
+                ):
+                    active_sessions = len(session_tracker.get_active_sessions())
+                elif metrics_collector and hasattr(
+                    metrics_collector, "get_system_metrics"
+                ):
+                    sys_m = metrics_collector.get_system_metrics()
+                    active_sessions = sys_m.get("session_metrics", {}).get("active", 0)
+                elif metrics_collector and hasattr(
+                    metrics_collector, "get_session_metrics"
+                ):
+                    sess_m = metrics_collector.get_session_metrics(session_tracker)
+                    active_sessions = sess_m.get("active_sessions", 0)
+            except Exception as e:
+                logger.warning(f"Failed to fetch active sessions for summary: {e}")
+
+            # 2. Healthy workers
+            healthy_workers = 0
+            try:
+                if worker_registry and hasattr(
+                    worker_registry, "get_worker_statistics"
+                ):
+                    w_stats = worker_registry.get_worker_statistics()
+                    healthy_workers = w_stats.get("healthy_workers", 0)
+                elif worker_registry and hasattr(worker_registry, "get_all_workers"):
+                    workers_map = worker_registry.get_all_workers()
+                    healthy_workers = sum(
+                        1
+                        for w in workers_map.values()
+                        if w.get("status") == "healthy"
+                        or w.get("health_status") == "healthy"
+                    )
+                elif metrics_collector and hasattr(
+                    metrics_collector, "get_system_metrics"
+                ):
+                    sys_m = metrics_collector.get_system_metrics()
+                    healthy_workers = sys_m.get("worker_metrics", {}).get(
+                        "healthy_workers", 0
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to fetch healthy workers for summary: {e}")
+
+            # 3. Today's interviews
+            # Reuses the same source and definition of "an interview" as the
+            # rest of the dashboard (InterviewSession, keyed off created_at) -
+            # see SessionTracker.get_session_statistics / get_active_sessions.
+            # InterviewSchedule rows are deliberately not added on top of this:
+            # a scheduled interview is represented by its InterviewSession once
+            # it starts, so counting both would double-count the same interview.
+            todays_interviews = 0
+            try:
+                now = datetime.now(timezone.utc)
+                start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                end_of_today = start_of_today + timedelta(days=1)
+
+                session_db = SessionLocal()
+                try:
+                    todays_interviews = (
+                        session_db.execute(
+                            select(func.count())
+                            .select_from(InterviewSession)
+                            .where(
+                                InterviewSession.created_at >= start_of_today,
+                                InterviewSession.created_at < end_of_today,
+                            )
+                        ).scalar()
+                        or 0
+                    )
+                finally:
+                    session_db.close()
+            except Exception as e:
+                logger.warning(f"Failed to fetch today's interviews for summary: {e}")
+
+            return {
+                "status": "success",
+                "metrics": {
+                    "active_sessions": active_sessions,
+                    "healthy_workers": healthy_workers,
+                    "todays_interviews": todays_interviews,
+                },
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        except Exception as e:
+            logger.error(f"Error fetching summary metrics: {e!s}")
             return {
                 "status": "error",
                 "error": str(e),

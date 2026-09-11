@@ -8,11 +8,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import Index, UniqueConstraint, create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from database.db import Base, get_db
-from database.models import Candidate, InterviewSchedule
+from database.models import Candidate, InterviewSchedule, Notification
 from orchestrator.email_service import EmailService
 from routers.schedule import create_schedule_routes
 
@@ -20,7 +21,11 @@ from routers.schedule import create_schedule_routes
 test_engine = create_engine(
     "sqlite:///:memory:", connect_args={"check_same_thread": False}
 )
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+TestingSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=test_engine,
+)
 
 test_app = FastAPI()
 test_app.include_router(create_schedule_routes())
@@ -38,7 +43,9 @@ def db_session():
     connection = test_engine.connect()
     transaction = connection.begin()
     session = TestingSessionLocal(bind=connection)
+
     yield session
+
     session.close()
     transaction.rollback()
     connection.close()
@@ -53,22 +60,28 @@ def client(db_session):
             pass
 
     test_app.dependency_overrides[get_db] = override_get_db
+
     with TestClient(test_app) as c:
         yield c
+
     test_app.dependency_overrides.clear()
 
 
 def test_interview_schedule_orm_model(db_session):
     """Test creating and querying InterviewSchedule model."""
+
     candidate = Candidate(
         candidate_id="cand_test_101",
         name="John Doe",
         email="john.doe@example.com",
+        is_verified=True,
     )
+
     db_session.add(candidate)
     db_session.commit()
 
     scheduled_time = datetime.now(timezone.utc) + timedelta(days=1)
+
     schedule = InterviewSchedule(
         id="sched_101",
         candidate_id="cand_test_101",
@@ -77,10 +90,12 @@ def test_interview_schedule_orm_model(db_session):
         status="scheduled",
         notes="Senior Backend Role",
     )
+
     db_session.add(schedule)
     db_session.commit()
 
     fetched = db_session.query(InterviewSchedule).filter_by(id="sched_101").first()
+
     assert fetched is not None
     assert fetched.candidate_id == "cand_test_101"
     assert fetched.interviewer_id == "interviewer_alice"
@@ -90,6 +105,7 @@ def test_interview_schedule_orm_model(db_session):
 
 def test_email_service_send_confirmation():
     """Test EmailService constructs email and handles SMTP gracefully."""
+
     email_svc = EmailService()
 
     with patch("smtplib.SMTP") as mock_smtp:
@@ -112,9 +128,13 @@ def test_email_service_send_confirmation():
 
 def test_email_service_handles_smtp_error():
     """Test EmailService catches SMTP exceptions and logs error."""
+
     email_svc = EmailService()
 
-    with patch("smtplib.SMTP", side_effect=Exception("SMTP Connection Refused")):
+    with patch(
+        "smtplib.SMTP",
+        side_effect=Exception("SMTP Connection Refused"),
+    ):
         success, msg = email_svc.send_interview_confirmation(
             candidate_name="Jane Doe",
             candidate_email="jane.doe@example.com",
@@ -130,11 +150,14 @@ def test_email_service_handles_smtp_error():
 
 def test_create_schedule_api_endpoint(client, db_session):
     """Test POST /api/schedule endpoint with candidate creation and email trigger."""
+
     candidate = Candidate(
         candidate_id="cand_test_303",
         name="Bob Architect",
         email="bob.architect@example.com",
+        is_verified=True,
     )
+
     db_session.add(candidate)
     db_session.commit()
 
@@ -151,11 +174,20 @@ def test_create_schedule_api_endpoint(client, db_session):
     with patch(
         "orchestrator.email_service.email_service.send_interview_confirmation"
     ) as mock_send:
-        mock_send.return_value = (True, "Email sent successfully")
-        response = client.post("/api/schedule", json=payload)
+        mock_send.return_value = (
+            True,
+            "Email sent successfully",
+        )
+
+        response = client.post(
+            "/api/schedule",
+            json=payload,
+        )
 
     assert response.status_code == 201
+
     data = response.json()
+
     assert data["message"] == "Interview scheduled successfully."
     assert data["schedule"]["candidate_id"] == "cand_test_303"
     assert data["schedule"]["candidate_name"] == "Bob Architect"
@@ -165,11 +197,14 @@ def test_create_schedule_api_endpoint(client, db_session):
 
 def test_create_schedule_past_date_fails(client, db_session):
     """Test that scheduling an interview in the past raises HTTP 400 error."""
+
     candidate = Candidate(
         candidate_id="cand_test_past",
         name="Past Candidate",
         email="past@example.com",
+        is_verified=True,
     )
+
     db_session.add(candidate)
     db_session.commit()
 
@@ -181,22 +216,30 @@ def test_create_schedule_past_date_fails(client, db_session):
         "scheduled_at": yesterday,
     }
 
-    response = client.post("/api/schedule", json=payload)
+    response = client.post(
+        "/api/schedule",
+        json=payload,
+    )
+
     assert response.status_code == 400
     assert "must be in the future" in response.json()["detail"]
 
 
 def test_update_schedule_invalid_status_fails(client, db_session):
     """Test that updating schedule with an invalid status raises HTTP 400 error."""
+
     candidate = Candidate(
         candidate_id="cand_test_status",
         name="Status Candidate",
         email="status@example.com",
+        is_verified=True,
     )
+
     db_session.add(candidate)
     db_session.commit()
 
     future_time = datetime.now(timezone.utc) + timedelta(days=2)
+
     schedule = InterviewSchedule(
         id="sched_invalid_status",
         candidate_id="cand_test_status",
@@ -204,6 +247,7 @@ def test_update_schedule_invalid_status_fails(client, db_session):
         scheduled_at=future_time,
         status="scheduled",
     )
+
     db_session.add(schedule)
     db_session.commit()
 
@@ -211,21 +255,26 @@ def test_update_schedule_invalid_status_fails(client, db_session):
         "/api/schedule/sched_invalid_status",
         json={"status": "invalid_status_xyz"},
     )
+
     assert patch_res.status_code == 400
     assert "Allowed statuses are" in patch_res.json()["detail"]
 
 
 def test_list_and_upcoming_schedule_api(client, db_session):
     """Test GET /api/schedule and GET /api/schedule/upcoming."""
+
     candidate = Candidate(
         candidate_id="cand_test_404",
         name="Alice Engineer",
         email="alice.engineer@example.com",
+        is_verified=True,
     )
+
     db_session.add(candidate)
     db_session.commit()
 
     future_time = datetime.now(timezone.utc) + timedelta(days=2)
+
     schedule = InterviewSchedule(
         id="sched_future",
         candidate_id="cand_test_404",
@@ -233,20 +282,27 @@ def test_list_and_upcoming_schedule_api(client, db_session):
         scheduled_at=future_time,
         status="scheduled",
     )
+
     db_session.add(schedule)
     db_session.commit()
 
     # GET /api/schedule
     res_list = client.get("/api/schedule")
+
     assert res_list.status_code == 200
+
     schedules = res_list.json()["schedules"]
+
     assert len(schedules) >= 1
-    assert any(s["id"] == "sched_future" for s in schedules)
+    assert any(schedule_data["id"] == "sched_future" for schedule_data in schedules)
 
     # GET /api/schedule/upcoming
     res_upcoming = client.get("/api/schedule/upcoming")
+
     assert res_upcoming.status_code == 200
+
     upcoming = res_upcoming.json()["upcoming"]
+
     assert len(upcoming) >= 1
     assert upcoming[0]["id"] == "sched_future"
 
@@ -254,13 +310,17 @@ def test_list_and_upcoming_schedule_api(client, db_session):
 def test_full_end_to_end_schedule_flow(client, db_session):
     """
     Final End-to-End Test Verification:
-    Schedule interview for tomorrow -> Save in DB -> Send confirmation email -> Show interview on upcoming dashboard.
+    Schedule interview for tomorrow -> Save in DB -> Send confirmation email
+    -> Show interview on upcoming dashboard.
     """
+
     candidate = Candidate(
         candidate_id="cand_e2e_999",
         name="E2E Tester",
         email="e2e.tester@example.com",
+        is_verified=True,
     )
+
     db_session.add(candidate)
     db_session.commit()
 
@@ -283,11 +343,13 @@ def test_full_end_to_end_schedule_flow(client, db_session):
         )
 
     assert post_res.status_code == 201
+
     res_data = post_res.json()
     sched_id = res_data["schedule"]["id"]
 
     # 2. Verify Saved in DB
     db_entry = db_session.query(InterviewSchedule).filter_by(id=sched_id).first()
+
     assert db_entry is not None
     assert db_entry.candidate_id == "cand_e2e_999"
     assert db_entry.interviewer_id == "Aditya Kanojiya"
@@ -298,6 +360,599 @@ def test_full_end_to_end_schedule_flow(client, db_session):
 
     # 4. Verify Shows on Upcoming Dashboard API
     upcoming_res = client.get("/api/schedule/upcoming")
+
     assert upcoming_res.status_code == 200
+
     upcoming_list = upcoming_res.json()["upcoming"]
-    assert any(s["id"] == sched_id for s in upcoming_list)
+
+    assert any(schedule_data["id"] == sched_id for schedule_data in upcoming_list)
+
+
+# ---------------------------------------------------------------------------
+# Issue #25 - Hook reschedule/cancel into notifications
+# ---------------------------------------------------------------------------
+
+
+def test_update_schedule_cancelled_creates_one_notification(
+    client,
+    db_session,
+):
+    """
+    Changing a scheduled interview to cancelled must create exactly
+    one notification for the candidate.
+    """
+
+    candidate = Candidate(
+        candidate_id="cand_notification_cancel",
+        name="Cancel Candidate",
+        email="cancel@example.com",
+    )
+
+    db_session.add(candidate)
+    db_session.commit()
+
+    future_time = datetime.now(timezone.utc) + timedelta(days=2)
+
+    schedule = InterviewSchedule(
+        id="sched_notification_cancel",
+        candidate_id="cand_notification_cancel",
+        interviewer_id="Interviewer Cancel",
+        scheduled_at=future_time,
+        status="scheduled",
+    )
+
+    db_session.add(schedule)
+    db_session.commit()
+
+    response = client.patch(
+        "/api/schedule/sched_notification_cancel",
+        json={"status": "cancelled"},
+    )
+
+    assert response.status_code == 200
+
+    response_data = response.json()
+
+    assert response_data["schedule"]["status"] == "cancelled"
+
+    notifications = (
+        db_session.query(Notification)
+        .filter(
+            Notification.user_id == "cand_notification_cancel",
+        )
+        .all()
+    )
+
+    assert len(notifications) == 1
+
+    notification = notifications[0]
+
+    assert notification.user_id == "cand_notification_cancel"
+    assert "cancelled" in notification.message.lower()
+    assert notification.read == False
+
+
+def test_update_schedule_rescheduled_creates_one_notification(
+    client,
+    db_session,
+):
+    """
+    Changing a scheduled interview to rescheduled must create exactly
+    one notification for the candidate.
+    """
+
+    candidate = Candidate(
+        candidate_id="cand_notification_reschedule",
+        name="Reschedule Candidate",
+        email="reschedule@example.com",
+    )
+
+    db_session.add(candidate)
+    db_session.commit()
+
+    future_time = datetime.now(timezone.utc) + timedelta(days=2)
+
+    schedule = InterviewSchedule(
+        id="sched_notification_reschedule",
+        candidate_id="cand_notification_reschedule",
+        interviewer_id="Interviewer Reschedule",
+        scheduled_at=future_time,
+        status="scheduled",
+    )
+
+    db_session.add(schedule)
+    db_session.commit()
+
+    response = client.patch(
+        "/api/schedule/sched_notification_reschedule",
+        json={"status": "rescheduled"},
+    )
+
+    assert response.status_code == 200
+
+    response_data = response.json()
+
+    assert response_data["schedule"]["status"] == "rescheduled"
+
+    notifications = (
+        db_session.query(Notification)
+        .filter(
+            Notification.user_id == "cand_notification_reschedule",
+        )
+        .all()
+    )
+
+    assert len(notifications) == 1
+
+    notification = notifications[0]
+
+    assert notification.user_id == "cand_notification_reschedule"
+    assert "rescheduled" in notification.message.lower()
+    assert notification.read == False
+
+
+def test_repeating_cancelled_status_does_not_create_duplicate_notification(
+    client,
+    db_session,
+):
+    """
+    Sending cancelled when the schedule is already cancelled must not
+    create a duplicate notification.
+    """
+
+    candidate = Candidate(
+        candidate_id="cand_notification_duplicate",
+        name="Duplicate Candidate",
+        email="duplicate@example.com",
+    )
+
+    db_session.add(candidate)
+    db_session.commit()
+
+    future_time = datetime.now(timezone.utc) + timedelta(days=2)
+
+    schedule = InterviewSchedule(
+        id="sched_notification_duplicate",
+        candidate_id="cand_notification_duplicate",
+        interviewer_id="Interviewer Duplicate",
+        scheduled_at=future_time,
+        status="scheduled",
+    )
+
+    db_session.add(schedule)
+    db_session.commit()
+
+    # First transition: scheduled -> cancelled.
+    first_response = client.patch(
+        "/api/schedule/sched_notification_duplicate",
+        json={"status": "cancelled"},
+    )
+
+    assert first_response.status_code == 200
+    assert first_response.json()["schedule"]["status"] == "cancelled"
+
+    # Second request: cancelled -> cancelled.
+    # This must not create another notification.
+    second_response = client.patch(
+        "/api/schedule/sched_notification_duplicate",
+        json={"status": "cancelled"},
+    )
+
+    assert second_response.status_code == 200
+    assert second_response.json()["schedule"]["status"] == "cancelled"
+
+    notifications = (
+        db_session.query(Notification)
+        .filter(
+            Notification.user_id == "cand_notification_duplicate",
+        )
+        .all()
+    )
+
+    assert len(notifications) == 1
+
+
+def test_repeating_rescheduled_status_does_not_create_duplicate_notification(
+    client,
+    db_session,
+):
+    """
+    Sending rescheduled when the schedule is already rescheduled must not
+    create a duplicate notification.
+    """
+
+    candidate = Candidate(
+        candidate_id="cand_notification_reschedule_duplicate",
+        name="Reschedule Duplicate Candidate",
+        email="reschedule-duplicate@example.com",
+    )
+
+    db_session.add(candidate)
+    db_session.commit()
+
+    future_time = datetime.now(timezone.utc) + timedelta(days=2)
+
+    schedule = InterviewSchedule(
+        id="sched_notification_reschedule_duplicate",
+        candidate_id="cand_notification_reschedule_duplicate",
+        interviewer_id="Interviewer Reschedule Duplicate",
+        scheduled_at=future_time,
+        status="scheduled",
+    )
+
+    db_session.add(schedule)
+    db_session.commit()
+
+    # First transition: scheduled -> rescheduled.
+    first_response = client.patch(
+        "/api/schedule/sched_notification_reschedule_duplicate",
+        json={"status": "rescheduled"},
+    )
+
+    assert first_response.status_code == 200
+    assert first_response.json()["schedule"]["status"] == "rescheduled"
+
+    # Second request: rescheduled -> rescheduled.
+    # This must not create another notification.
+    second_response = client.patch(
+        "/api/schedule/sched_notification_reschedule_duplicate",
+        json={"status": "rescheduled"},
+    )
+
+    assert second_response.status_code == 200
+    assert second_response.json()["schedule"]["status"] == "rescheduled"
+
+    notifications = (
+        db_session.query(Notification)
+        .filter(
+            Notification.user_id == "cand_notification_reschedule_duplicate",
+        )
+        .all()
+    )
+
+    assert len(notifications) == 1
+
+
+def test_update_schedule_completed_does_not_create_notification(
+    client,
+    db_session,
+):
+    """
+    Changing a scheduled interview to completed must not create a
+    cancellation or reschedule notification.
+    """
+
+    candidate = Candidate(
+        candidate_id="cand_notification_completed",
+        name="Completed Candidate",
+        email="completed@example.com",
+    )
+
+    db_session.add(candidate)
+    db_session.commit()
+
+    future_time = datetime.now(timezone.utc) + timedelta(days=2)
+
+    schedule = InterviewSchedule(
+        id="sched_notification_completed",
+        candidate_id="cand_notification_completed",
+        interviewer_id="Interviewer Completed",
+        scheduled_at=future_time,
+        status="scheduled",
+    )
+
+    db_session.add(schedule)
+    db_session.commit()
+
+    response = client.patch(
+        "/api/schedule/sched_notification_completed",
+        json={"status": "completed"},
+    )
+
+    assert response.status_code == 200
+
+    response_data = response.json()
+
+    assert response_data["schedule"]["status"] == "completed"
+
+    notifications = (
+        db_session.query(Notification)
+        .filter(
+            Notification.user_id == "cand_notification_completed",
+        )
+        .all()
+    )
+
+    assert len(notifications) == 0
+
+
+def test_update_schedule_without_status_does_not_create_notification(
+    client,
+    db_session,
+):
+    """
+    Updating only schedule details without changing the status must not
+    create a notification.
+    """
+
+    candidate = Candidate(
+        candidate_id="cand_notification_no_status",
+        name="No Status Candidate",
+        email="no-status@example.com",
+    )
+
+    db_session.add(candidate)
+    db_session.commit()
+
+    future_time = datetime.now(timezone.utc) + timedelta(days=2)
+
+    schedule = InterviewSchedule(
+        id="sched_notification_no_status",
+        candidate_id="cand_notification_no_status",
+        interviewer_id="Interviewer No Status",
+        scheduled_at=future_time,
+        status="scheduled",
+        notes="Original notes",
+    )
+
+    db_session.add(schedule)
+    db_session.commit()
+
+    response = client.patch(
+        "/api/schedule/sched_notification_no_status",
+        json={"notes": "Updated interview notes"},
+    )
+
+    assert response.status_code == 200
+
+    response_data = response.json()
+
+    assert response_data["schedule"]["status"] == "scheduled"
+    assert response_data["schedule"]["notes"] == "Updated interview notes"
+
+    notifications = (
+        db_session.query(Notification)
+        .filter(
+            Notification.user_id == "cand_notification_no_status",
+        )
+        .all()
+    )
+
+    assert len(notifications) == 0
+
+
+def test_cancelled_to_rescheduled_creates_one_notification(
+    client,
+    db_session,
+):
+    """
+    Changing an already cancelled schedule to rescheduled is a real status
+    transition and must create exactly one reschedule notification.
+    """
+
+    candidate = Candidate(
+        candidate_id="cand_cancel_to_reschedule",
+        name="Cancel To Reschedule Candidate",
+        email="cancel-to-reschedule@example.com",
+    )
+
+    db_session.add(candidate)
+    db_session.commit()
+
+    future_time = datetime.now(timezone.utc) + timedelta(days=2)
+
+    schedule = InterviewSchedule(
+        id="sched_cancel_to_reschedule",
+        candidate_id="cand_cancel_to_reschedule",
+        interviewer_id="Interviewer Transition",
+        scheduled_at=future_time,
+        status="cancelled",
+    )
+
+    db_session.add(schedule)
+    db_session.commit()
+
+    response = client.patch(
+        "/api/schedule/sched_cancel_to_reschedule",
+        json={"status": "rescheduled"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["schedule"]["status"] == "rescheduled"
+
+    notifications = (
+        db_session.query(Notification)
+        .filter(
+            Notification.user_id == "cand_cancel_to_reschedule",
+        )
+        .all()
+    )
+
+    assert len(notifications) == 1
+    assert "rescheduled" in notifications[0].message.lower()
+
+
+def test_rescheduled_to_cancelled_creates_one_notification(
+    client,
+    db_session,
+):
+    """
+    Changing an already rescheduled schedule to cancelled is a real status
+    transition and must create exactly one cancellation notification.
+    """
+
+    candidate = Candidate(
+        candidate_id="cand_reschedule_to_cancel",
+        name="Reschedule To Cancel Candidate",
+        email="reschedule-to-cancel@example.com",
+    )
+
+    db_session.add(candidate)
+    db_session.commit()
+
+    future_time = datetime.now(timezone.utc) + timedelta(days=2)
+
+    schedule = InterviewSchedule(
+        id="sched_reschedule_to_cancel",
+        candidate_id="cand_reschedule_to_cancel",
+        interviewer_id="Interviewer Transition",
+        scheduled_at=future_time,
+        status="rescheduled",
+    )
+
+    db_session.add(schedule)
+    db_session.commit()
+
+    response = client.patch(
+        "/api/schedule/sched_reschedule_to_cancel",
+        json={"status": "cancelled"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["schedule"]["status"] == "cancelled"
+
+    notifications = (
+        db_session.query(Notification)
+        .filter(
+            Notification.user_id == "cand_reschedule_to_cancel",
+        )
+        .all()
+    )
+
+    assert len(notifications) == 1
+    assert "cancelled" in notifications[0].message.lower()
+
+
+# ---------------------------------------------------------------------------
+# Stabilized-version - DB-level slot integrity and model table args
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_slot_booking_prevented_at_db_level(db_session):
+    """Test that booking the same candidate for the exact same slot raises IntegrityError at DB level."""
+    candidate = Candidate(
+        candidate_id="cand_dup_test",
+        name="Dup Candidate",
+        email="dup@example.com",
+    )
+    db_session.add(candidate)
+    db_session.commit()
+
+    slot_time = datetime(2026, 9, 1, 14, 0, 0, tzinfo=timezone.utc)
+
+    # First booking succeeds
+    sched1 = InterviewSchedule(
+        id="sched_dup_1",
+        candidate_id="cand_dup_test",
+        interviewer_id="Interviewer A",
+        scheduled_at=slot_time,
+        status="scheduled",
+    )
+    db_session.add(sched1)
+    db_session.commit()
+
+    # Second booking for same candidate at the same slot must fail at DB constraint level
+    sched2 = InterviewSchedule(
+        id="sched_dup_2",
+        candidate_id="cand_dup_test",
+        interviewer_id="Interviewer B",
+        scheduled_at=slot_time,
+        status="scheduled",
+    )
+    db_session.add(sched2)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_different_candidates_same_slot_allowed(db_session):
+    """Test that two different candidates can have interviews scheduled at the same time."""
+    c1 = Candidate(candidate_id="cand_multi_1", name="Cand 1", email="c1@example.com")
+    c2 = Candidate(candidate_id="cand_multi_2", name="Cand 2", email="c2@example.com")
+    db_session.add_all([c1, c2])
+    db_session.commit()
+
+    slot_time = datetime(2026, 9, 2, 10, 0, 0, tzinfo=timezone.utc)
+
+    sched1 = InterviewSchedule(
+        id="sched_multi_1",
+        candidate_id="cand_multi_1",
+        interviewer_id="Interviewer Alpha",
+        scheduled_at=slot_time,
+        status="scheduled",
+    )
+    sched2 = InterviewSchedule(
+        id="sched_multi_2",
+        candidate_id="cand_multi_2",
+        interviewer_id="Interviewer Beta",
+        scheduled_at=slot_time,
+        status="scheduled",
+    )
+    db_session.add_all([sched1, sched2])
+    db_session.commit()
+
+    assert (
+        db_session.query(InterviewSchedule).filter_by(id="sched_multi_1").first()
+        is not None
+    )
+    assert (
+        db_session.query(InterviewSchedule).filter_by(id="sched_multi_2").first()
+        is not None
+    )
+
+
+def test_same_candidate_different_slots_allowed(db_session):
+    """Test that the same candidate can have multiple interviews at different times."""
+    candidate = Candidate(
+        candidate_id="cand_slots_test",
+        name="Multi Slot Cand",
+        email="multislot@example.com",
+    )
+    db_session.add(candidate)
+    db_session.commit()
+
+    time1 = datetime(2026, 9, 3, 10, 0, 0, tzinfo=timezone.utc)
+    time2 = datetime(2026, 9, 3, 14, 0, 0, tzinfo=timezone.utc)
+
+    sched1 = InterviewSchedule(
+        id="sched_slot_1",
+        candidate_id="cand_slots_test",
+        interviewer_id="Interviewer Round 1",
+        scheduled_at=time1,
+        status="scheduled",
+    )
+    sched2 = InterviewSchedule(
+        id="sched_slot_2",
+        candidate_id="cand_slots_test",
+        interviewer_id="Interviewer Round 2",
+        scheduled_at=time2,
+        status="scheduled",
+    )
+    db_session.add_all([sched1, sched2])
+    db_session.commit()
+
+    results = (
+        db_session.query(InterviewSchedule)
+        .filter_by(candidate_id="cand_slots_test")
+        .all()
+    )
+    assert len(results) == 2
+
+
+def test_interview_schedule_table_args_and_indexes():
+    """Verify table args contains unique constraint and composite indexes."""
+    table_args = InterviewSchedule.__table_args__
+    assert table_args is not None
+
+    # Check UniqueConstraint
+    unique_constraints = [
+        arg for arg in table_args if isinstance(arg, UniqueConstraint)
+    ]
+    uq_names = [uq.name for uq in unique_constraints]
+    assert "uq_schedule_candidate_slot" in uq_names
+
+    # Check composite Indexes
+    indexes = [arg for arg in table_args if isinstance(arg, Index)]
+    idx_names = [idx.name for idx in indexes]
+    assert "ix_schedule_interviewer_time" in idx_names
+    assert "ix_schedule_status_time" in idx_names
