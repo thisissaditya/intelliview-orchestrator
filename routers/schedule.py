@@ -27,17 +27,17 @@ ALLOWED_STATUSES = {"scheduled", "completed", "cancelled", "rescheduled"}
 # Prefer full IANA names (e.g. "Asia/Kolkata") wherever possible; this map
 # exists only to accept casual input, not as a source of truth.
 TIMEZONE_ABBREVIATIONS = {
-    "IST": "Asia/Kolkata",       # India Standard Time
-    "EST": "America/New_York",   # US Eastern
+    "IST": "Asia/Kolkata",  # India Standard Time
+    "EST": "America/New_York",  # US Eastern
     "EDT": "America/New_York",
-    "CST": "America/Chicago",    # US Central
+    "CST": "America/Chicago",  # US Central
     "CDT": "America/Chicago",
-    "MST": "America/Denver",     # US Mountain
+    "MST": "America/Denver",  # US Mountain
     "MDT": "America/Denver",
     "PST": "America/Los_Angeles",  # US Pacific
     "PDT": "America/Los_Angeles",
     "GMT": "Etc/GMT",
-    "BST": "Europe/London",      # British Summer Time
+    "BST": "Europe/London",  # British Summer Time
     "CET": "Europe/Paris",
     "JST": "Asia/Tokyo",
     "AEST": "Australia/Sydney",
@@ -153,10 +153,10 @@ def create_schedule_routes() -> APIRouter:
                 interviewer_id=payload.interviewer_id,
                 scheduled_at=scheduled_at,
                 timezone=booking_tz.key,  # canonical IANA name, not the raw
-                                          # input (e.g. "IST" -> "Asia/Kolkata"),
-                                          # so downstream Intl.DateTimeFormat
-                                          # calls on the frontend always get a
-                                          # valid IANA zone name.
+                # input (e.g. "IST" -> "Asia/Kolkata"),
+                # so downstream Intl.DateTimeFormat
+                # calls on the frontend always get a
+                # valid IANA zone name.
                 status="scheduled",
                 notes=payload.notes,
             )

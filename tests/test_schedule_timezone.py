@@ -75,9 +75,7 @@ class TestUTCStorage:
         )
         assert resp.status_code == 201, resp.text
         data = resp.json()["schedule"]
-        stored = datetime.fromisoformat(data["scheduled_at"]).astimezone(
-            timezone.utc
-        )
+        stored = datetime.fromisoformat(data["scheduled_at"]).astimezone(timezone.utc)
         assert stored.hour == 4
         assert stored.minute == 30
 
@@ -91,9 +89,7 @@ class TestUTCStorage:
         )
         assert resp.status_code == 201, resp.text
         data = resp.json()["schedule"]
-        stored = datetime.fromisoformat(data["scheduled_at"]).astimezone(
-            timezone.utc
-        )
+        stored = datetime.fromisoformat(data["scheduled_at"]).astimezone(timezone.utc)
         assert stored.hour == 14
 
 
@@ -110,9 +106,7 @@ class TestMidnightBoundary:
         )
         assert resp.status_code == 201, resp.text
         data = resp.json()["schedule"]
-        stored = datetime.fromisoformat(data["scheduled_at"]).astimezone(
-            timezone.utc
-        )
+        stored = datetime.fromisoformat(data["scheduled_at"]).astimezone(timezone.utc)
         expected_utc_date = d + timedelta(days=1)
         assert stored.date() == expected_utc_date
         assert stored.hour == 5
@@ -129,9 +123,7 @@ class TestMidnightBoundary:
         )
         assert resp.status_code == 201, resp.text
         data = resp.json()["schedule"]
-        stored = datetime.fromisoformat(data["scheduled_at"]).astimezone(
-            timezone.utc
-        )
+        stored = datetime.fromisoformat(data["scheduled_at"]).astimezone(timezone.utc)
         expected_utc_date = d - timedelta(days=1)
         assert stored.date() == expected_utc_date
         assert stored.hour == 18
@@ -173,9 +165,7 @@ class TestTimezonePersistedAndReturned:
 
 
 class TestCrossTimezoneDisplay:
-    def test_same_utc_instant_resolves_correctly_for_two_viewers(
-        self, test_candidate
-    ):
+    def test_same_utc_instant_resolves_correctly_for_two_viewers(self, test_candidate):
         """
         Simulates two viewers in different timezones looking at the SAME
         stored UTC instant. Each must compute the correct, DIFFERENT local
@@ -185,13 +175,9 @@ class TestCrossTimezoneDisplay:
         Intl.DateTimeFormat).
         """
         d = future_date(30)
-        resp = _create_schedule(
-            test_candidate, f"{d.isoformat()}T14:00:00", "UTC"
-        )
+        resp = _create_schedule(test_candidate, f"{d.isoformat()}T14:00:00", "UTC")
         assert resp.status_code == 201, resp.text
-        stored_utc = datetime.fromisoformat(
-            resp.json()["schedule"]["scheduled_at"]
-        )
+        stored_utc = datetime.fromisoformat(resp.json()["schedule"]["scheduled_at"])
 
         viewer_ny_local = stored_utc.astimezone(ZoneInfo("America/New_York"))
         viewer_tokyo_local = stored_utc.astimezone(ZoneInfo("Asia/Tokyo"))
@@ -224,8 +210,6 @@ class TestTimezoneValidation:
         names, so storing the abbreviation verbatim would break display.
         """
         d = future_date(31)
-        resp = _create_schedule(
-            test_candidate, f"{d.isoformat()}T10:00:00", "IST"
-        )
+        resp = _create_schedule(test_candidate, f"{d.isoformat()}T10:00:00", "IST")
         assert resp.status_code == 201, resp.text
         assert resp.json()["schedule"]["timezone"] == "Asia/Kolkata"
