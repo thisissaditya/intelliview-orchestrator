@@ -82,26 +82,11 @@ def postgres_container():
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database(postgres_container):
     """
-    Initialize the test database schema once per session.
-    This must run before any API tests execute.
+    Database schema is created by 'alembic upgrade head' in CI
+    before tests run. This fixture just ensures the container/connection
+    is ready — it does not create or drop tables itself.
     """
-    from sqlalchemy import create_engine
-
-    from database.models import Base
-
-    engine = create_engine(
-        postgres_container.get_connection_url(),
-        future=True,
-    )
-
-    # Create all tables once at the start of the test session
-    Base.metadata.create_all(engine)
-
     yield
-
-    # Cleanup after all tests
-    Base.metadata.drop_all(engine)
-    engine.dispose()
 
 
 @pytest.fixture
