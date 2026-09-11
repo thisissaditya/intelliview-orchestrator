@@ -89,6 +89,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
+          alembic upgrade head
           pytest tests/ \
             --ignore=tests/test_e2e_smoke.py \
             --cov=. \
