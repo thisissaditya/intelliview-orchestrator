@@ -131,17 +131,6 @@ def create_schedule_routes() -> APIRouter:
                     detail=f"Unknown timezone: '{payload.timezone}'",
                 )
 
-<<<<<<< HEAD
-=======
-            # Ensure candidate is verified
-            if not getattr(candidate, "is_verified", False):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Candidate must be verified ({candidate.status}) before booking an interview slot.",
-                )
-
-            # Ensure datetime is timezone-aware
->>>>>>> origin/Stabilized-version
             scheduled_at = payload.scheduled_at
             if scheduled_at.tzinfo is None:
                 scheduled_at = scheduled_at.replace(tzinfo=booking_tz)
@@ -294,10 +283,7 @@ def create_schedule_routes() -> APIRouter:
                 .join(
                     Candidate,
                     InterviewSchedule.candidate_id == Candidate.candidate_id,
-<<<<<<< HEAD
                     isouter=True,
-=======
->>>>>>> origin/Stabilized-version
                 )
                 .where(InterviewSchedule.scheduled_at >= now)
                 .where(InterviewSchedule.status == "scheduled")
@@ -348,10 +334,7 @@ def create_schedule_routes() -> APIRouter:
                 .join(
                     Candidate,
                     InterviewSchedule.candidate_id == Candidate.candidate_id,
-<<<<<<< HEAD
                     isouter=True,
-=======
->>>>>>> origin/Stabilized-version
                 )
                 .where(InterviewSchedule.id == schedule_id)
             )
