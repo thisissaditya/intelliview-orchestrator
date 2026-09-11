@@ -79,20 +79,26 @@ def postgres_container():
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_database(postgres_container):
+    """
+    Database schema is created by 'alembic upgrade head' in CI
+    before tests run. This fixture just ensures the container/connection
+    is ready — it does not create or drop tables itself.
+    """
+    yield
+
+
 @pytest.fixture
-def db_session(postgres_container):
+def db_session(postgres_container, setup_test_database):
     """Provide a SQLAlchemy session connected to the test database."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-
-    from database.models import Base
 
     engine = create_engine(
         postgres_container.get_connection_url(),
         future=True,
     )
-
-    Base.metadata.create_all(engine)
 
     TestingSessionLocal = sessionmaker(bind=engine)
     session = TestingSessionLocal()
@@ -101,7 +107,6 @@ def db_session(postgres_container):
         yield session
     finally:
         session.close()
-        Base.metadata.drop_all(engine)
         engine.dispose()
 
 

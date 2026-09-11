@@ -2,25 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [main, Stabilized-version,issue-22-dataset-validation]
-
+    branches: [main, Stabilized-version, issue-22-dataset-validation]
   pull_request:
-    branches: [main, Stabilized-version,issue-22-dataset-validation]
+    branches: [main, Stabilized-version, issue-22-dataset-validation]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-
   # --------------------------------------------------
   # Python tests
   # --------------------------------------------------
-
   test:
     name: Python Tests
     runs-on: ubuntu-latest
-
     services:
       redis:
         image: redis:7
@@ -44,7 +40,6 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 5
-
     env:
       REDIS_URL: redis://localhost:6379/0
       POSTGRES_HOST: localhost
@@ -58,7 +53,6 @@ jobs:
       ENABLE_PROMETHEUS: "true"
       CORS_ALLOW_ORIGINS: "*"
       RATE_LIMIT_PER_MINUTE: "10000"
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -77,18 +71,25 @@ jobs:
           pip install -r requirements.txt
           pip install "packaging<26"
           pip install "ruff==0.9.10" "black==25.1.0" "isort==6.0.1"
+
       - name: Black format check
         run: python -m black --check .
+
       - name: isort import check
         run: python -m isort --check-only --profile black .
+
       - name: Ruff lint
         run: ruff check orchestrator workers monitoring database tests scripts routers retrieval
 
       - name: Run DB migrations
-        run: alembic upgrade head
+        run: |
+          alembic upgrade head
+          psql "postgresql://postgres:postgres@localhost:5432/ai_interview_test" -c "\dt"
 
       - name: Run tests with coverage
         run: |
+          alembic upgrade head
+          psql "postgresql://postgres:postgres@localhost:5432/ai_interview_test" -c "\dt"
           pytest tests/ \
             --ignore=tests/test_e2e_smoke.py \
             --cov=. \
@@ -115,12 +116,10 @@ jobs:
   # --------------------------------------------------
   # End-to-end tests
   # --------------------------------------------------
-
   e2e:
     name: End-to-End Smoke Test
     needs: test
     runs-on: ubuntu-latest
-
     env:
       API_TOKEN: ci-test-token
       API_BASE_URL: http://localhost:8000
@@ -134,7 +133,6 @@ jobs:
       XDG_CACHE_HOME: /tmp/.cache
       HOME: /tmp
       TMPDIR: /tmp
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -172,7 +170,6 @@ jobs:
             echo "Waiting for API... ($i)"
             sleep 2
           done
-
           echo "API never became healthy" >&2
           docker compose -f docker-compose.yml logs
           exit 1
@@ -196,15 +193,12 @@ jobs:
   # --------------------------------------------------
   # Frontend lint + build
   # --------------------------------------------------
-
   frontend:
     name: Frontend Lint and Build
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: frontend
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -230,13 +224,11 @@ jobs:
   # --------------------------------------------------
   # Check whether Docker Hub secrets are configured
   # --------------------------------------------------
-
   check-secrets:
     name: Check Docker Secrets
     runs-on: ubuntu-latest
     outputs:
       has-docker-creds: ${{ steps.check.outputs.has-docker-creds }}
-
     steps:
       - name: Check for Docker Hub credentials
         id: check
@@ -253,7 +245,6 @@ jobs:
   # Docker build and push
   # Runs only after merge/push to main
   # --------------------------------------------------
-
   docker-build:
     name: Build and Push Docker Images
     needs:
@@ -262,12 +253,10 @@ jobs:
       - frontend
       - check-secrets
     runs-on: ubuntu-latest
-
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Stabilized-version') &&
       needs.check-secrets.outputs.has-docker-creds == 'true'
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -300,3 +289,12 @@ jobs:
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/intelliview-worker:latest
             ${{ secrets.DOCKER_USERNAME }}/intelliview-worker:${{ github.sha }}
+
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/intelliview-frontend:latest
+            ${{ secrets.DOCKER_USERNAME }}/intelliview-frontend:${{ github.sha }}

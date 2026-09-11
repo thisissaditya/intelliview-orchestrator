@@ -153,6 +153,9 @@ services:
       resources:
         limits:
           memory: 2G
+<<<<<<< HEAD
+          cpus: "2.0"
+=======
           cpus: "4.0"
 
   celery-beat:
@@ -186,6 +189,7 @@ services:
       - beat
       - --loglevel=info
     restart: unless-stopped
+>>>>>>> origin/Stabilized-version
 
   cv-service:
     build:

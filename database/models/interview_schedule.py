@@ -12,6 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import text
 
 from database.models._base import Base, utcnow
 
@@ -67,6 +68,16 @@ class InterviewSchedule(Base):
         nullable=False,
         index=True,
     )
+    # IANA timezone name the interview was originally booked in (e.g.
+    # "Asia/Kolkata"). scheduled_at is always stored in UTC; this column
+    # preserves the booking-local timezone so clients can display the
+    # original local time alongside each viewer's own local time.
+    timezone = Column(
+        String(64),
+        nullable=False,
+        default="UTC",
+        server_default=text("'UTC'"),
+    )
     status = Column(
         String(50),
         nullable=False,
@@ -95,5 +106,6 @@ class InterviewSchedule(Base):
             f"candidate_id='{self.candidate_id}', "
             f"interviewer_id='{self.interviewer_id}', "
             f"scheduled_at='{self.scheduled_at}', "
+            f"timezone='{self.timezone}', "
             f"status='{self.status}')>"
         )

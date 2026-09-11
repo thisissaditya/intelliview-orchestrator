@@ -45,6 +45,9 @@ export default function SchedulePage() {
   const [scheduledAt, setScheduledAt] = useState(getTomorrowDefault());
   const [notes, setNotes] = useState("Technical Evaluation Round");
   const [sendEmail, setSendEmail] = useState(true);
+  const [timezone, setTimezone] = useState(
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+  );
 
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -89,7 +92,8 @@ export default function SchedulePage() {
       const payload = {
         candidate_id: selectedCandidateId,
         interviewer_id: interviewerId,
-        scheduled_at: new Date(scheduledAt).toISOString(),
+        scheduled_at: scheduledAt,
+        timezone: timezone,
         notes: notes,
         send_email: sendEmail,
       };
@@ -276,6 +280,20 @@ if (scheduleError) {
                     required
                     className="w-full bg-zinc-800/90 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
+                  <select
+                    value={timezone}
+                    onChange={(e) => setTimezone(e.target.value)}
+                    required
+                    className="w-full bg-zinc-800/90 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 focus:outline-none"
+                  >
+                    <option value="UTC">UTC</option>
+                    <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                    <option value="America/New_York">America/New_York (ET)</option>
+                    <option value="America/Los_Angeles">America/Los_Angeles (PT)</option>
+                    <option value="Europe/London">Europe/London (GMT/BST)</option>
+                    <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
+                    <option value="Australia/Sydney">Australia/Sydney (AEST)</option>
+                  </select>
 
                 </div>
               </div>

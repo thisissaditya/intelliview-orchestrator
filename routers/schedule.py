@@ -5,6 +5,7 @@ Handles schedule creation, calendar listings, upcoming events, and triggering em
 
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -20,6 +21,46 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_STATUSES = {"scheduled", "completed", "cancelled", "rescheduled"}
 
+# Common non-IANA timezone abbreviations mapped to a canonical IANA zone.
+# Abbreviations are inherently ambiguous (e.g. IST = India/Israel/Ireland,
+# CST = US Central/China), so each entry below picks ONE common meaning.
+# Prefer full IANA names (e.g. "Asia/Kolkata") wherever possible; this map
+# exists only to accept casual input, not as a source of truth.
+TIMEZONE_ABBREVIATIONS = {
+    "IST": "Asia/Kolkata",  # India Standard Time
+    "EST": "America/New_York",  # US Eastern
+    "EDT": "America/New_York",
+    "CST": "America/Chicago",  # US Central
+    "CDT": "America/Chicago",
+    "MST": "America/Denver",  # US Mountain
+    "MDT": "America/Denver",
+    "PST": "America/Los_Angeles",  # US Pacific
+    "PDT": "America/Los_Angeles",
+    "GMT": "Etc/GMT",
+    "BST": "Europe/London",  # British Summer Time
+    "CET": "Europe/Paris",
+    "JST": "Asia/Tokyo",
+    "AEST": "Australia/Sydney",
+    "AEDT": "Australia/Sydney",
+    "SGT": "Asia/Singapore",
+    "HKT": "Asia/Hong_Kong",
+}
+
+
+def resolve_timezone(tz_name: str) -> ZoneInfo:
+    """
+    Resolve a timezone string to a ZoneInfo, accepting either a full IANA
+    name (e.g. 'Asia/Kolkata') or a common abbreviation (e.g. 'IST').
+    Raises ZoneInfoNotFoundError if neither resolves.
+    """
+    try:
+        return ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        canonical = TIMEZONE_ABBREVIATIONS.get(tz_name.strip().upper())
+        if canonical:
+            return ZoneInfo(canonical)
+        raise
+
 
 class CreateScheduleRequest(BaseModel):
     """Payload for creating a new interview schedule."""
@@ -30,6 +71,10 @@ class CreateScheduleRequest(BaseModel):
     )
     scheduled_at: datetime = Field(
         ..., description="ISO datetime string for the scheduled interview"
+    )
+    timezone: str = Field(
+        default="UTC",
+        description="IANA timezone name the scheduled_at was entered in, e.g. 'Asia/Kolkata'",
     )
     notes: str | None = Field(
         default=None, description="Optional interview notes or description"
@@ -61,31 +106,38 @@ def create_schedule_routes() -> APIRouter:
     ):
         """
         Create a new interview schedule and trigger an email notification to the candidate.
-        Validates future date/time and candidate existence.
+        Validates future date/time. Candidate existence is NOT enforced — any
+        candidate_id string is accepted; if it doesn't match a real Candidate
+        record, name/email fall back to the raw ID / None.
         """
         try:
-            # Check candidate existence
+            # Look up candidate if it exists, but don't require it.
             candidate = db.execute(
                 select(Candidate).where(Candidate.candidate_id == payload.candidate_id)
             ).scalar_one_or_none()
 
-            if not candidate:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Candidate with ID '{payload.candidate_id}' not found.",
-                )
+            candidate_name = candidate.name if candidate else payload.candidate_id
+            candidate_email = candidate.email if candidate else None
 
-            # Ensure candidate is verified
-            if not getattr(candidate, "is_verified", False):
+            # Ensure datetime is timezone-aware.
+            # Localize using the booking timezone, then convert to UTC for storage.
+            # This fixes midnight-boundary bugs: e.g. 2026-08-20T23:30 in
+            # Asia/Kolkata is 2026-08-20T18:00 UTC, not the next calendar day.
+            try:
+                booking_tz = resolve_timezone(payload.timezone)
+            except (ZoneInfoNotFoundError, ValueError):
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Candidate must be verified ({candidate.status}) before booking an interview slot.",
+                    detail=f"Unknown timezone: '{payload.timezone}'",
                 )
 
-            # Ensure datetime is timezone-aware
             scheduled_at = payload.scheduled_at
             if scheduled_at.tzinfo is None:
-                scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+                scheduled_at = scheduled_at.replace(tzinfo=booking_tz)
+            else:
+                scheduled_at = scheduled_at.astimezone(booking_tz)
+
+            scheduled_at = scheduled_at.astimezone(timezone.utc)
 
             # Validate that scheduled_at is in the future
             now_utc = datetime.now(timezone.utc)
@@ -100,6 +152,11 @@ def create_schedule_routes() -> APIRouter:
                 candidate_id=payload.candidate_id,
                 interviewer_id=payload.interviewer_id,
                 scheduled_at=scheduled_at,
+                timezone=booking_tz.key,  # canonical IANA name, not the raw
+                # input (e.g. "IST" -> "Asia/Kolkata"),
+                # so downstream Intl.DateTimeFormat
+                # calls on the frontend always get a
+                # valid IANA zone name.
                 status="scheduled",
                 notes=payload.notes,
             )
@@ -112,29 +169,32 @@ def create_schedule_routes() -> APIRouter:
             email_sent = False
             email_msg = "Email notification disabled."
 
-            if payload.send_email and candidate.email:
+            if payload.send_email and candidate_email:
                 date_str = scheduled_at.strftime("%B %d, %Y")
                 time_str = scheduled_at.strftime("%I:%M %p %Z").strip()
 
                 email_sent, email_msg = email_service.send_interview_confirmation(
-                    candidate_name=candidate.name,
-                    candidate_email=candidate.email,
+                    candidate_name=candidate_name,
+                    candidate_email=candidate_email,
                     interview_date=date_str,
                     interview_time=time_str,
                     interviewer_name=payload.interviewer_id,
                     schedule_id=schedule.id,
                     notes=payload.notes,
                 )
+            elif payload.send_email and not candidate_email:
+                email_msg = "Email notification skipped: no email on file for this candidate_id."
 
             return {
                 "message": "Interview scheduled successfully.",
                 "schedule": {
                     "id": schedule.id,
                     "candidate_id": schedule.candidate_id,
-                    "candidate_name": candidate.name,
-                    "candidate_email": candidate.email,
+                    "candidate_name": candidate_name,
+                    "candidate_email": candidate_email,
                     "interviewer_id": schedule.interviewer_id,
                     "scheduled_at": schedule.scheduled_at.isoformat(),
+                    "timezone": schedule.timezone,
                     "status": schedule.status,
                     "notes": schedule.notes,
                     "created_at": schedule.created_at.isoformat(),
@@ -164,7 +224,9 @@ def create_schedule_routes() -> APIRouter:
         """List all interview schedules with candidate details."""
         try:
             stmt = select(InterviewSchedule, Candidate).join(
-                Candidate, InterviewSchedule.candidate_id == Candidate.candidate_id
+                Candidate,
+                InterviewSchedule.candidate_id == Candidate.candidate_id,
+                isouter=True,
             )
 
             if candidate_id:
@@ -184,10 +246,11 @@ def create_schedule_routes() -> APIRouter:
                     {
                         "id": sched.id,
                         "candidate_id": sched.candidate_id,
-                        "candidate_name": cand.name,
-                        "candidate_email": cand.email,
+                        "candidate_name": cand.name if cand else sched.candidate_id,
+                        "candidate_email": cand.email if cand else None,
                         "interviewer_id": sched.interviewer_id,
                         "scheduled_at": sched.scheduled_at.isoformat(),
+                        "timezone": sched.timezone,
                         "status": sched.status,
                         "notes": sched.notes,
                         "created_at": sched.created_at.isoformat(),
@@ -220,6 +283,7 @@ def create_schedule_routes() -> APIRouter:
                 .join(
                     Candidate,
                     InterviewSchedule.candidate_id == Candidate.candidate_id,
+                    isouter=True,
                 )
                 .where(InterviewSchedule.scheduled_at >= now)
                 .where(InterviewSchedule.status == "scheduled")
@@ -236,10 +300,11 @@ def create_schedule_routes() -> APIRouter:
                     {
                         "id": sched.id,
                         "candidate_id": sched.candidate_id,
-                        "candidate_name": cand.name,
-                        "candidate_email": cand.email,
+                        "candidate_name": cand.name if cand else sched.candidate_id,
+                        "candidate_email": cand.email if cand else None,
                         "interviewer_id": sched.interviewer_id,
                         "scheduled_at": sched.scheduled_at.isoformat(),
+                        "timezone": sched.timezone,
                         "status": sched.status,
                         "notes": sched.notes,
                     }
@@ -269,6 +334,7 @@ def create_schedule_routes() -> APIRouter:
                 .join(
                     Candidate,
                     InterviewSchedule.candidate_id == Candidate.candidate_id,
+                    isouter=True,
                 )
                 .where(InterviewSchedule.id == schedule_id)
             )
@@ -286,10 +352,11 @@ def create_schedule_routes() -> APIRouter:
             return {
                 "id": sched.id,
                 "candidate_id": sched.candidate_id,
-                "candidate_name": cand.name,
-                "candidate_email": cand.email,
+                "candidate_name": cand.name if cand else sched.candidate_id,
+                "candidate_email": cand.email if cand else None,
                 "interviewer_id": sched.interviewer_id,
                 "scheduled_at": sched.scheduled_at.isoformat(),
+                "timezone": sched.timezone,
                 "status": sched.status,
                 "notes": sched.notes,
                 "created_at": sched.created_at.isoformat(),
@@ -404,6 +471,7 @@ def create_schedule_routes() -> APIRouter:
                     "id": schedule.id,
                     "status": schedule.status,
                     "scheduled_at": schedule.scheduled_at.isoformat(),
+                    "timezone": schedule.timezone,
                     "notes": schedule.notes,
                 },
             }
