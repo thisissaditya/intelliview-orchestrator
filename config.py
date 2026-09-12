@@ -6,28 +6,12 @@ via `pydantic-settings`. All values have sensible local defaults but
 should be overridden in production.
 """
 
-import json
 from functools import lru_cache
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-@lru_cache(maxsize=1)
-def get_aws_secrets(secret_name: str, region_name: str = "us-east-1") -> dict:
-    """Fetches and caches JSON secrets from AWS Secrets Manager."""
-    import boto3
-    from botocore.exceptions import ClientError
-
-    session = boto3.session.Session()
-    client = session.client(service_name="secretsmanager", region_name=region_name)
-    try:
-        response = client.get_secret_value(SecretId=secret_name)
-        if "SecretString" in response:
-            return json.loads(response["SecretString"])
-    except ClientError as e:
-        print(f"Error fetching secrets: {e}")
-    return {}
+from scripts.secrets_manager import get_aws_secrets
 
 
 class _CsvList(list):
@@ -86,7 +70,7 @@ class Settings(BaseSettings):
 
     # --- Screen Lock ---
     screen_lock_timeout: int = 300
-    screen_lock_pin: str = "1234"
+    screen_lock_pin: str = ""
 
     # --- Real-time Tracking ---
     realtime_enabled: bool = True

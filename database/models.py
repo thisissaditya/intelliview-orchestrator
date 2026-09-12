@@ -84,6 +84,10 @@ class InterviewSession(Base):
             "overall_score IS NULL OR overall_score >= 0",
             name="ck_overall_score_non_negative",
         ),
+        CheckConstraint(
+            "integrity_score IS NULL OR (integrity_score >= 0 AND integrity_score <= 100)",
+            name="ck_integrity_score_range",
+        ),
     )
     #
 
@@ -108,6 +112,8 @@ class InterviewSession(Base):
     end_time = Column(DateTime(timezone=True), nullable=True)
 
     risk_score = Column(Float, nullable=True)
+    integrity_score = Column(Float, nullable=True, index=True)
+    fused_signal = Column(JSON, nullable=True)
 
     # Analysis results stored as JSON
     video_analysis = Column(JSON, nullable=True)
@@ -153,7 +159,8 @@ class InterviewSession(Base):
             f"<InterviewSession(session_id='{self.session_id}', "
             f"candidate_id='{self.candidate_id}', "
             f"status='{self.status}', "
-            f"risk_score={self.risk_score})>"
+            f"risk_score={self.risk_score}, "
+            f"integrity_score={self.integrity_score})>"
         )
 
 

@@ -54,3 +54,57 @@ After fixing the release issue, perform another monitored load test to determine
 ## Conclusion
 
 The main bottleneck is **worker capacity, not database, Redis, or compute resources**. The priority is to fix worker slot release, then scale workers and retest.
+
+---
+
+# J6 Baseline � 10 September 2026
+
+## 7. Baseline Load Test
+
+A representative load test was executed using the existing Locust interview-session flow.
+
+| Metric | Result |
+|---|---:|
+| Concurrent users | 10 |
+| Test duration | 60 seconds |
+| Spawn rate | 2 users/second |
+| Total requests | 203 |
+| Total failures | 129 |
+| Error rate | 63.55% |
+| Rate-limited responses (429) | 0 |
+| Median response time | 12 ms |
+| p95 response time | 80 ms |
+| p99 response time | 270 ms |
+| Maximum response time | ~340 ms |
+| `/start-interview` failures | 129 � HTTP 503 |
+
+All recorded failures in this run were HTTP 503 responses from `/start-interview`. No rate-limited responses were observed.
+
+## 8. Monitoring Baseline
+
+The J6 Grafana dashboard is provisioned as **IntelliView J6 Load Test Baseline** and uses the Prometheus datasource.
+
+The monitored metrics include:
+
+- HTTP p95 latency
+- HTTP error rate
+- Worker active tasks and capacity
+- Queue depth
+
+Worker capacity reported by Prometheus was **4**. After the load test completed, worker active tasks were **0** and queue depth was **0**.
+
+The active-task and queue-depth values above are post-test observations, not peak values during the load test.
+
+## 9. Baseline Observation
+
+The 10-user representative run produced a **63.55% non-rate-limit failure rate**, with all failures occurring on `/start-interview` as HTTP 503 responses.
+
+This result is recorded as the J6 baseline for future comparison. No performance fixes were made as part of J6.
+
+## 10. Grafana Dashboard
+
+Dashboard: **IntelliView J6 Load Test Baseline**
+
+Dashboard UID: `j6-load-baseline`
+
+The dashboard is configured to visualize the Prometheus metrics required for J6 baseline monitoring.

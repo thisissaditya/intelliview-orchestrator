@@ -42,6 +42,8 @@ mediapipe
 
 # === PDF Generation ===
 reportlab==4.2.5
+pypdf
+python-docx
 faiss-cpu
 google-generativeai
 
@@ -52,5 +54,7 @@ chromadb
 
 # === Load Testing ===
 locust
+pyttsx3==2.99
+chromadb
 pyttsx3>=2.90
 

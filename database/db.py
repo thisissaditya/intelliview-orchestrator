@@ -37,7 +37,7 @@ else:
         _connect_args["sslmode"] = DATABASE_SSLMODE
         _engine_kwargs["connect_args"] = _connect_args
 
-# Database engine initialization with structured error handling & SQLite fallback
+# Database engine initialization with structured error handling
 try:
     engine = create_engine(
         db_url,
@@ -49,16 +49,15 @@ try:
     logger.info("Database engine initialized successfully with URL: %s", db_url)
 
 except Exception as exc:
-    logger.warning(
-        "Database connection to PostgreSQL/external server failed (%s). "
-        "Falling back to local SQLite database (sqlite:///./intelliview.db) for local development.",
-        exc,
-    )
-    db_url = "sqlite:///./intelliview.db"
-    engine = create_engine(
-        db_url,
-        connect_args={"check_same_thread": False},
-    )
+    if "sqlite" in db_url.lower():
+        logger.error("SQLite database engine initialization failed (%s).", exc)
+    else:
+        logger.error(
+            "Database connection to PostgreSQL/external server failed (%s). "
+            "Failing closed (no SQLite fallback for configured PostgreSQL).",
+            exc,
+        )
+    raise
 
 
 SessionLocal = sessionmaker(

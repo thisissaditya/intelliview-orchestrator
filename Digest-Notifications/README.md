@@ -287,7 +287,7 @@ To run the digest engine as an autonomous service inside the parent orchestrator
     ports:
       - "8080:8080"
     environment:
-      API_TOKEN: "${API_TOKEN:-dev-token-change-me}"
+      ${API_TOKEN:?API_TOKEN must be set}
       DIGEST_BATCH_SIZE: "5"
     volumes:
       - .:/app

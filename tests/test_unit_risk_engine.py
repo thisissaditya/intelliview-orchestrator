@@ -9,6 +9,36 @@ import math
 from workers.risk_engine import RiskScoringEngine
 
 
+def test_calculate_final_risk_all_clean():
+    final_risk = RiskScoringEngine.calculate_final_risk(0.0, 0.0, 0.0)
+
+    assert final_risk == 0.0
+
+
+def test_calculate_final_risk_all_flagged():
+    final_risk = RiskScoringEngine.calculate_final_risk(1.0, 1.0, 1.0)
+
+    assert final_risk == 1.0
+
+
+def test_calculate_final_risk_mixed_signals():
+    final_risk = RiskScoringEngine.calculate_final_risk(0.5, 0.2, 0.4)
+
+    assert final_risk == 0.38
+
+
+def test_calculate_final_risk_partial_signals():
+    final_risk = RiskScoringEngine.calculate_final_risk(0.5, 0.0, 0.0)
+
+    assert final_risk == 0.2
+
+
+def test_calculate_final_risk_audio_only():
+    final_risk = RiskScoringEngine.calculate_final_risk(0.0, 0.5, 0.0)
+
+    assert final_risk == 0.15
+
+
 def test_classify_risk_boundaries():
     assert RiskScoringEngine.classify_risk(0.0) == "LOW"
     assert RiskScoringEngine.classify_risk(0.29) == "LOW"

@@ -35,3 +35,22 @@ def test_production_aws_secrets(mock_session_class, monkeypatch):
     assert settings.postgres_host == "prod-db-cluster.aws.com"
     assert settings.postgres_user == "prod_user"
     mock_client.get_secret_value.assert_called_once_with(SecretId="test-secrets")
+
+
+def test_database_sslmode_require(monkeypatch):
+    """Test that DATABASE_SSLMODE=require is accepted and appended to resolved_database_url."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATABASE_SSLMODE", "require")
+    settings = Settings()
+    assert settings.database_sslmode == "require"
+    assert "sslmode=require" in settings.resolved_database_url
+
+
+def test_database_sslmode_invalid(monkeypatch):
+    """Test that invalid DATABASE_SSLMODE values are rejected."""
+    import pytest
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("DATABASE_SSLMODE", "invalid-sslmode")
+    with pytest.raises(ValidationError):
+        Settings()

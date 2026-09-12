@@ -11,6 +11,7 @@ SESSION_STATUS_PATH = "/session-status/{session_id}"
 ASK_QUESTION_PATH = "/interviews/ask-question"
 SUBMIT_ANSWER_PATH = "/interviews/submit-answer"
 
+MIN_ANSWERS_PER_INTERVIEW = 1
 MAX_ANSWERS_PER_INTERVIEW = 8
 
 MIN_THINK_TIME = 3
@@ -29,7 +30,7 @@ SAMPLE_ANSWERS = [
     "stakeholders early and setting clear checkpoints.",
     "I think the tradeoff here is between speed and correctness, and I'd "
     "lean toward correctness given the stakes described.",
-    "My strongest skill is probably debugging under pressure — I stay "
+    "My strongest skill is probably debugging under pressure â€” I stay "
     "systematic instead of guessing.",
     "I'd want more context before committing to an answer, but my initial "
     "instinct is to isolate the variable and test it directly.",
@@ -141,7 +142,7 @@ class InterviewCandidate(HttpUser):
                 return None
             if resp.status_code == 401:
                 resp.failure(
-                    "401 Unauthorized — check LOAD_TEST_API_KEY matches server's API_TOKEN"
+                    "401 Unauthorized â€” check LOAD_TEST_API_KEY matches server's API_TOKEN"
                 )
                 return None
             if resp.status_code not in (200, 201):
@@ -303,6 +304,6 @@ def _print_summary(environment, **kwargs):
     if other_fail_rate > max_acceptable_failure_rate:
         print(
             f"NON-RATE-LIMIT FAILURE RATE {other_fail_rate:.2f}% exceeds "
-            f"threshold {max_acceptable_failure_rate}% — treat this run "
+            f"threshold {max_acceptable_failure_rate}% â€” treat this run "
             f"as a failed test."
         )

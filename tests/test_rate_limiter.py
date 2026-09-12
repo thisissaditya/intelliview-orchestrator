@@ -84,6 +84,7 @@ def test_exempt_health_path_bypasses_rate_limiter(app):
 
 def test_client_key_uses_ip_and_api_token(app):
     """Rate-limit identity should include client IP and optional API token."""
+    _, _ = app
     _application, _ = app
 
     request = MagicMock()

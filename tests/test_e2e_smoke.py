@@ -78,6 +78,7 @@ def test_start_interview_and_get_status(api_base_url, api_token):
             break
         time.sleep(3)
     _wait_for_worker(api_base_url)
+
     r = httpx.post(
         f"{api_base_url}/start-interview",
         json={"candidate_id": f"cand-{uuid.uuid4().hex[:8]}", "priority": "high"},
@@ -151,6 +152,7 @@ def test_full_pipeline_completes(api_base_url, api_token):
             break
         time.sleep(3)
     _wait_for_worker(api_base_url)
+
     r = httpx.post(
         f"{api_base_url}/start-interview",
         json={"candidate_id": f"e2e-{uuid.uuid4().hex[:8]}", "priority": "medium"},

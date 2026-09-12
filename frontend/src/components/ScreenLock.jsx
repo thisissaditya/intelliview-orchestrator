@@ -6,7 +6,7 @@ import { Lock, Unlock, Eye, EyeOff } from "lucide-react";
 const LOCK_KEY = "intelliview_screen_lock";
 const ACTIVITY_KEY = "intelliview_last_activity";
 const DEFAULT_TIMEOUT = 300000;
-const DEFAULT_PIN = "1234";
+const DEFAULT_PIN = "";
 
 export function useScreenLock(timeout = DEFAULT_TIMEOUT) {
   const [isLocked, setIsLocked] = useState(false);

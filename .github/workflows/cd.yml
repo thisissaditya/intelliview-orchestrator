@@ -9,6 +9,7 @@ on:
       - completed
 
 permissions:
+  id-token: write
   contents: read
 
 jobs:
@@ -26,6 +27,15 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
+      - name: Install deployment dependencies
+        run: python -m pip install boto3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
       - name: Login to Docker Hub
         if: env.DOCKER_USERNAME_SECRET != '' && env.DOCKER_TOKEN_SECRET != ''
         uses: docker/login-action@v4
@@ -33,33 +43,11 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN_CD }}
 
-      - name: Prepare environment
-        run: touch .env
-
-      - name: Pull latest Docker images
+      - name: Deploy using AWS Secrets Manager
         env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-        run: docker compose pull
-
-      - name: Start application
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-        run: docker compose up -d --build
+          AWS_SECRET_NAME: intelliview-secrets
+          AWS_REGION: us-east-1
+        run: python scripts/deploy_with_secrets.py
 
       - name: Check containers
-        run: docker compose ps
-
-      - name: Post-deploy health verification
-        run: |
-          for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8000/health; then
-              echo "Staging environment is healthy!"
-              exit 0
-            fi
-            echo "Waiting for API to become healthy... ($i/30)"
-            sleep 2
-          done
-
-          echo "Staging health check failed" >&2
-          docker compose logs
-          exit 1
+        run: docker compose -f docker-compose.yml ps

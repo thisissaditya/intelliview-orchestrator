@@ -77,6 +77,12 @@ jobs:
           pip install -r requirements.txt
           pip install "packaging<26"
           pip install "ruff==0.9.10" "black==25.1.0" "isort==6.0.1"
+
+      - name: Install eSpeak
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y espeak-ng
+
       - name: Black format check
         run: python -m black --check .
       - name: isort import check
@@ -129,6 +135,7 @@ jobs:
       POSTGRES_DB: ai_interview_test
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      GRAFANA_PASSWORD: ci-test-grafana-password
       DATABASE_SSLMODE: disable
       REDIS_URL: redis://redis:6379/0
       XDG_CACHE_HOME: /tmp/.cache

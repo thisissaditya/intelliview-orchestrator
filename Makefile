@@ -64,7 +64,7 @@ demo: up seed ## Full one-shot: bring up the stack + seed demo data.
 	@echo "  Frontend → http://localhost:3000"
 	@echo "  Flower   → http://localhost:5555/flower"
 	@echo
-	@echo "  Default API_TOKEN: dev-token-change-me  (paste it into the top bar)"
+	@echo "  API_TOKEN must be configured (paste it into the top bar)"
 
 # --- Quality -------------------------------------------------------------
 
