@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: intelliview-api
+    runtime: docker
+    dockerfilePath: Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: staging
+      - key: POSTGRES_HOST
+        value: ep-billowing-meadow-aylpos1f-pooler.c-5.us-east-2.aws.neon.tech
+      - key: POSTGRES_PORT
+        value: "5432"
+      - key: POSTGRES_DB
+        value: neondb
+      - key: POSTGRES_USER
+        value: neondb_owner
+      - key: POSTGRES_PASSWORD
+        value: npg_ltiFXqgM62us
+      - key: DATABASE_SSLMODE
+        value: require
+      - key: REDIS_URL
+        value: rediss://default:gQAAAAAAAUbpAAIgcDIyMWI5ODU4MWE2MzQ0MjY5OTMxMjM2ODdjODVkZTdlZA@saving-dassie-83689.upstash.io:6379
+      - key: CELERY_BROKER_URL
+        value: rediss://default:gQAAAAAAAUbpAAIgcDIyMWI5ODU4MWE2MzQ0MjY5OTMxMjM2ODdjODVkZTdlZA@saving-dassie-83689.upstash.io:6379
+      - key: CELERY_RESULT_BACKEND
+        value: rediss://default:gQAAAAAAAUbpAAIgcDIyMWI5ODU4MWE2MzQ0MjY5OTMxMjM2ODdjODVkZTdlZA@saving-dassie-83689.upstash.io:6379
+      - key: API_TOKEN
+        value: api123
+      - key: JWT_SECRET_KEY
+        value: change-this-to-a-long-random-secret-key
+      - key: CORS_ALLOW_ORIGINS
+        value: "*"
+      - key: ENABLE_PROMETHEUS
+        value: "true"
+      - key: JSON_LOGGING
+        value: "true"
