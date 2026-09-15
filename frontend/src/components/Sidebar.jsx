@@ -16,7 +16,8 @@ import {
   Video,
   UserCircle,
   Mail,
-  Calendar
+  Calendar,
+  HelpCircle
 } from "lucide-react";
 
 const items = [
@@ -28,6 +29,7 @@ const items = [
   { href: "/workers", label: "Workers", icon: Users },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/help", label: "Help", icon: HelpCircle },
   {
     href: "http://localhost:8080",
     label: "Digest Control",
