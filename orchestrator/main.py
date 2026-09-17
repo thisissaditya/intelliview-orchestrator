@@ -244,16 +244,21 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
 
 
 logging.getLogger("opentelemetry.exporter.otlp.proto.grpc.exporter").setLevel(
-    logging.DEBUG
+    logging.ERROR
 )
-logging.basicConfig(level=logging.DEBUG)
 
-trace.set_tracer_provider(TracerProvider())
-tracer_provider = trace.get_tracer_provider()
-otlp_exporter = OTLPSpanExporter(endpoint="http://jaeger:4317", insecure=True)
-tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
-
-FastAPIInstrumentor.instrument_app(app)
+if os.getenv("ENABLE_JAEGER", "false").lower() == "true":
+    try:
+        trace.set_tracer_provider(TracerProvider())
+        tracer_provider = trace.get_tracer_provider()
+        otlp_exporter = OTLPSpanExporter(
+            endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://jaeger:4317"),
+            insecure=True,
+        )
+        tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+        FastAPIInstrumentor.instrument_app(app)
+    except Exception as e:
+        logger.warning(f"Could not initialize Jaeger exporter: {e}")
 
 
 @app.middleware("http")
