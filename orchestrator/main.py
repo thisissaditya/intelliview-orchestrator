@@ -650,6 +650,16 @@ class CreateTemplateRequest(BaseModel):
     difficulty_distribution: dict[str, float] | None = None
 
 
+@app.get("/")
+async def root():
+    return {
+        "service": "AI Interview Orchestrator API",
+        "status": "online",
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
 @app.get("/health")
 async def health():
     uptime = int((datetime.now(timezone.utc) - APP_START_TIME).total_seconds())

@@ -37,3 +37,7 @@ services:
         value: "true"
       - key: JSON_LOGGING
         value: "true"
+      - key: PORT
+        value: "8000"
+      - key: ENABLE_JAEGER
+        value: "false"

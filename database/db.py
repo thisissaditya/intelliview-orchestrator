@@ -43,9 +43,21 @@ try:
         db_url,
         **_engine_kwargs,
     )
-    # Test database connectivity
-    with engine.connect() as conn:
-        pass
+    # Test database connectivity (with retry for serverless compute wake-up)
+    import time
+    for attempt in range(1, 6):
+        try:
+            with engine.connect() as conn:
+                break
+        except Exception as conn_err:
+            if attempt == 5:
+                raise
+            logger.warning(
+                "Database connection attempt %d failed (%s). Retrying in 2s...",
+                attempt,
+                conn_err,
+            )
+            time.sleep(2)
     logger.info("Database engine initialized successfully with URL: %s", db_url)
 
 except Exception as exc:
